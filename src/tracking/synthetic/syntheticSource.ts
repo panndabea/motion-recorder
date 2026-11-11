@@ -42,6 +42,10 @@ export class SyntheticPoseSource implements PoseSource {
     }, 1000 / seq.fps);
   }
 
+  rewind() {
+    this.t0 = performance.now();
+  }
+
   stop() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;

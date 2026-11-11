@@ -19,6 +19,8 @@ export interface PoseSource {
   start(): Promise<void>;
   stop(): void;
   stats(): PoseSourceStats;
+  /** Synthetic sources: jump back to the start of the sequence (its neutral standing pose). */
+  rewind?(): void;
 }
 
 export class RateMeter {
