@@ -32,11 +32,13 @@ async function startAndCalibrate(page: Page) {
 
 async function record(page: Page, name: string, ms: number) {
   await page.getByTestId('animation-name').fill(name);
+  const t0 = Date.now();
   await page.getByTestId('record').click();
   await expect(page.getByTestId('mode')).toHaveText('Recording');
   await page.waitForTimeout(ms);
   await page.getByTestId('stop-recording').click();
   await expect(page.getByTestId('recording-item').filter({ hasText: name })).toBeVisible();
+  return (Date.now() - t0) / 1000;
 }
 
 test('live tracking drives the mannequin, records, plays back, and exports/imports JSON + GLB', async ({ page }, info) => {
@@ -54,10 +56,11 @@ test('live tracking drives the mannequin, records, plays back, and exports/impor
   await page.waitForTimeout(500);
   expect(angle(await boneQuat(page, 'DEF-upper_arm.L'), restArm)).toBeGreaterThan(0.05);
 
-  await record(page, 'E2E Take', 2500);
-  const duration = Number((await page.getByTestId('duration').textContent())?.replace(/[^\d.]/g, ''));
-  expect(duration).toBeGreaterThan(1.5);
-  expect(duration).toBeLessThan(4);
+  const elapsed = await record(page, 'E2E Take', 2500);
+  const duration = Number((await page.getByTestId('duration').textContent())?.replace(/[^\d.:]/g, '').split(':').reduce((a, b) => a * 60 + Number(b), 0));
+  // Duration follows the real Record→Stop interval (clicks can lag on slow CI runners).
+  expect(duration).toBeGreaterThan(2.2);
+  expect(duration).toBeLessThanOrEqual(elapsed + 0.2);
 
   // Playback: live tracking must not drive the bones; scrubbing is deterministic.
   await page.getByTestId('play').click();
