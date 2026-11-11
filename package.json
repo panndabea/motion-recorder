@@ -16,7 +16,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "fetch-model": "node scripts/fetch-pose-model.mjs",
-    "generate:synthetic": "node scripts/generate-synthetic.mjs",
+    "generate:synthetic": "tsx scripts/generate-synthetic.ts",
     "check": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "engines": {
