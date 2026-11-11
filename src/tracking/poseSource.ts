@@ -19,8 +19,8 @@ export interface PoseSource {
   start(): Promise<void>;
   stop(): void;
   stats(): PoseSourceStats;
-  /** Synthetic sources: jump back to the start of the sequence (its neutral standing pose). */
-  rewind?(): void;
+  /** Synthetic sources: emit the sequence's neutral first frame while `on` (stands in for a person holding still), then restart. */
+  holdNeutral?(on: boolean): void;
 }
 
 export class RateMeter {

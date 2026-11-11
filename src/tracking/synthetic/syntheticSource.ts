@@ -26,6 +26,7 @@ export class SyntheticPoseSource implements PoseSource {
   private meter = new RateMeter();
   private t0 = 0;
   private sequence: SyntheticSequence | null = null;
+  private holding = false;
 
   constructor(private readonly load: () => Promise<SyntheticSequence> = loadDefaultSequence) {}
 
@@ -35,15 +36,16 @@ export class SyntheticPoseSource implements PoseSource {
     this.t0 = performance.now();
     this.timer = setInterval(() => {
       const now = performance.now();
-      const idx = Math.floor(((now - this.t0) / 1000) * seq.fps) % seq.frames.length;
+      const idx = this.holding ? 0 : Math.floor(((now - this.t0) / 1000) * seq.fps) % seq.frames.length;
       const world = seq.frames[idx].map(([x, y, z, visibility]) => ({ x, y, z, visibility }));
       this.meter.tick(now);
       this.onFrame({ timestamp: now, world, image: worldToImage(world) });
     }, 1000 / seq.fps);
   }
 
-  rewind() {
-    this.t0 = performance.now();
+  holdNeutral(on: boolean) {
+    if (this.holding && !on) this.t0 = performance.now();
+    this.holding = on;
   }
 
   stop() {

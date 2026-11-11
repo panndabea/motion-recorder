@@ -198,6 +198,7 @@ export class MotionEngine {
   }
 
   private setMode(mode: AppMode) {
+    this.source?.holdNeutral?.(mode === 'calibrating');
     set({ mode });
   }
 
@@ -215,7 +216,6 @@ export class MotionEngine {
     if (!this.source) return toast('warning', 'Start the camera first.');
     if (get().mode === 'recording' || get().mode === 'playback') return;
     this.calibrator.reset();
-    this.source.rewind?.();
     set({ calibration: { ...get().calibration, progress: 0, message: 'Stand upright, facing the camera…' } });
     this.setMode('calibrating');
   }

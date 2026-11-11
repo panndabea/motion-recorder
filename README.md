@@ -23,7 +23,8 @@ Camera access needs a secure context (`localhost` or HTTPS).
 
 No webcam? Open `http://localhost:5173/?source=synthetic` – a deterministic
 synthetic pose stream (generated from the mannequin's own clips) replaces the
-camera so the full pipeline can be tried and tested.
+camera so the full pipeline can be tried and tested. While calibrating, the
+synthetic source holds its neutral first frame (like a person standing still).
 
 ## Using it
 
