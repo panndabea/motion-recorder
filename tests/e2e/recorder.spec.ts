@@ -112,6 +112,17 @@ test('live tracking drives the mannequin, records, plays back, and exports/impor
     expect(angle(await boneQuat(page, 'DEF-forearm.L'), at1a)).toBeLessThan(0.01);
   }
 
+  // Importing during playback leaves playback, so the new take (not the old one) plays next.
+  await page.getByTestId('play').click();
+  await expect(page.getByTestId('mode')).toHaveText('Playback');
+  await page.getByTestId('import-input').setInputFiles(jsonPath);
+  await expect(page.getByTestId('recording-item')).toHaveCount(3);
+  await expect(page.getByTestId('mode')).not.toHaveText('Playback');
+  await expect(page.getByTestId('recording-item').nth(2)).toHaveClass(/selected/);
+  page.once('dialog', (d) => void d.accept());
+  await page.getByTestId('recording-item').nth(2).getByTestId('delete-recording').click();
+  await expect(page.getByTestId('recording-item')).toHaveCount(2);
+
   // Recordings survive a reload (IndexedDB).
   await page.reload();
   await expect(page.getByTestId('recording-item')).toHaveCount(2);

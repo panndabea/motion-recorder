@@ -80,7 +80,8 @@ export class MotionEngine {
 
   private async addRecording(motion: MotionData) {
     const rec = { id: newId(), motion };
-    set((s) => ({ recordings: [...s.recordings, rec], selectedId: rec.id }));
+    set((s) => ({ recordings: [...s.recordings, rec] }));
+    this.select(rec.id);
     try {
       await saveRecording(rec);
     } catch (e) {
