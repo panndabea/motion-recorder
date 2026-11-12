@@ -6,7 +6,8 @@ import { validateMotion, type MotionData } from '../../recording/motionFormat';
 import { exportMotionGlb } from '../../export/glbExporter';
 import { importMotionGlb } from '../../import/glbImporter';
 import { saveRecording } from '../../storage/recordingStore';
-import { runPrompt } from '../ai/directorSession';
+import { runPrompt, runPromptWithModel } from '../ai/directorSession';
+import { DEFAULT_LLM_SETTINGS, type LlmSettings } from '../ai/llmInterpreter';
 import type { DirectorAction } from '../ai/commandSchema';
 import { resolveDependencies } from '../planning/actionPlanner';
 import { ComposerContext, composePerformance, type Performance } from '../animation/motionComposer';
@@ -36,6 +37,25 @@ interface DirectorState {
   notices: Notice[];
   canUndo: boolean;
   canRedo: boolean;
+  llm: LlmSettings;
+  /** A prompt is waiting for the local model. */
+  thinking: boolean;
+}
+
+const LLM_KEY = 'director-studio/llm';
+function loadLlmSettings(): LlmSettings {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(LLM_KEY) : null;
+    const v = raw ? (JSON.parse(raw) as Partial<LlmSettings>) : {};
+    return {
+      enabled: v.enabled === true,
+      baseUrl: typeof v.baseUrl === 'string' && v.baseUrl ? v.baseUrl : DEFAULT_LLM_SETTINGS.baseUrl,
+      model: typeof v.model === 'string' && v.model ? v.model : DEFAULT_LLM_SETTINGS.model,
+      timeoutMs: typeof v.timeoutMs === 'number' && v.timeoutMs >= 1000 ? v.timeoutMs : DEFAULT_LLM_SETTINGS.timeoutMs,
+    };
+  } catch {
+    return { ...DEFAULT_LLM_SETTINGS };
+  }
 }
 
 const idb = typeof indexedDB !== 'undefined' ? createStore('director-studio', 'projects') : undefined;
@@ -62,7 +82,20 @@ export const useDirector = create<DirectorState>(() => ({
   notices: [],
   canUndo: false,
   canRedo: false,
+  llm: loadLlmSettings(),
+  thinking: false,
 }));
+
+/** Local-model settings are per machine, so they live in localStorage rather than in the project file. */
+export function setLlmSettings(patch: Partial<LlmSettings>) {
+  const llm = { ...get().llm, ...patch };
+  set({ llm });
+  try {
+    localStorage.setItem(LLM_KEY, JSON.stringify(llm));
+  } catch {
+    /* storage unavailable: keep the settings for this session */
+  }
+}
 
 const set = useDirector.setState;
 const get = useDirector.getState;
@@ -131,12 +164,20 @@ export interface PromptResult {
   reply: string;
 }
 
-/** Interprets a prompt (see `runPrompt`) and commits the result as one undoable step. */
-export function sendPrompt(text: string): PromptResult {
+/** Interprets a prompt (local model if enabled, else `runPrompt`) and commits the result as one undoable step. */
+export async function sendPrompt(text: string): Promise<PromptResult> {
   const s = get();
-  const project = s.project;
-  if (!text.trim() || !ctx) return { ok: false, reply: '' };
-  const r = runPrompt(ctx, project, text, s.selectedAction, chatId);
+  if (!text.trim() || !ctx || s.thinking) return { ok: false, reply: '' };
+  let r: ReturnType<typeof runPrompt>;
+  if (s.llm.enabled) {
+    set({ thinking: true });
+    try {
+      r = await runPromptWithModel(ctx, s.project, text, s.selectedAction, chatId, s.llm);
+    } finally {
+      set({ thinking: false });
+    }
+  } else r = runPrompt(ctx, s.project, text, s.selectedAction, chatId);
+  const project = get().project;
   const next: DirectorProject = { ...project, actions: r.actions, nextId: r.nextId, chat: [...project.chat, ...r.entries] };
   commit(next, { undoable: r.changed });
   if (r.changed) set((st) => ({ time: 0, playing: true, selectedAction: st.selectedAction && r.actions.some((a) => a.id === st.selectedAction) ? st.selectedAction : null }));

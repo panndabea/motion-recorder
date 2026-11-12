@@ -2,7 +2,8 @@ import type { DirectorProject, ChatEntry } from '../persistence/directorProject'
 import { composePerformance, type ComposerContext, type Performance } from '../animation/motionComposer';
 import { applyCommand } from '../planning/actionPlanner';
 import type { Measure } from '../timeline/retiming';
-import { parseDirection, parseScopeAnswer } from './commandParser';
+import { parseDirection, parseScopeAnswer, type ParseResult } from './commandParser';
+import { interpretWithModel, type FetchLike, type LlmSettings } from './llmInterpreter';
 import { validateCommands, TIMING_OPERATIONS, type DirectorAction, type DirectorCommand } from './commandSchema';
 import { resolveCommand, substituteContext, type EditContext } from './editContext';
 
@@ -35,14 +36,21 @@ let fallbackId = 0;
  * selection and the previous instruction → apply. Pure apart from id generation. Unknown phrasing changes
  * nothing; ambiguous references produce a clarification question whose short answer completes the prompt.
  */
-export function runPrompt(ctx: ComposerContext, project: Pick<DirectorProject, 'actions' | 'chat' | 'scene' | 'nextId'>, text: string, selectedActionId: string | null = null, chatId: () => string = () => `c${++fallbackId}`): PromptOutcome {
+export function runPrompt(
+  ctx: ComposerContext,
+  project: Pick<DirectorProject, 'actions' | 'chat' | 'scene' | 'nextId'>,
+  text: string,
+  selectedActionId: string | null = null,
+  chatId: () => string = () => `c${++fallbackId}`,
+  interpreted?: ParseResult,
+): PromptOutcome {
   const trimmed = text.trim();
   const userEntry: ChatEntry = { id: chatId(), role: 'user', text: trimmed };
   const pctx = { hasSequence: project.actions.length > 0, existingTypes: project.actions.map((a) => a.type) };
   const lastDirector = [...project.chat].reverse().find((c) => c.role === 'director');
-  let parsed = parseDirection(trimmed, pctx);
+  let parsed = interpreted ?? parseDirection(trimmed, pctx);
   // A short reply to a clarification question ("the walk") names the target instead of being a new action.
-  const answer = lastDirector?.clarify ? parseScopeAnswer(trimmed) : null;
+  const answer = lastDirector?.clarify && !interpreted ? parseScopeAnswer(trimmed) : null;
   if (answer && lastDirector?.clarify) {
     const original = parseDirection(lastDirector.clarify.prompt, pctx);
     parsed = { ...original, commands: substituteContext(original.commands, answer), interpretation: [`"${lastDirector.clarify.prompt}" →`, ...original.interpretation] };
@@ -113,4 +121,43 @@ export function runPrompt(ctx: ComposerContext, project: Pick<DirectorProject, '
   const changed = ok && applied.length > 0;
   const dirEntry: ChatEntry = { id: chatId(), role: 'director', text: reply, ok, commands: applied.length ? applied : undefined, affected: affected.size ? [...affected] : undefined, clarify };
   return { ok, reply, changed, actions: changed ? actions : project.actions, nextId: n, entries: [userEntry, dirEntry] };
+}
+
+type Project = Pick<DirectorProject, 'actions' | 'chat' | 'scene' | 'nextId'>;
+
+/**
+ * A director turn interpreted by a local language model. The model's JSON is validated before anything is applied;
+ * if the server is unreachable, times out, replies with invalid commands or understands nothing, the rule-based
+ * parser handles the prompt instead and the reply says why.
+ */
+export async function runPromptWithModel(
+  ctx: ComposerContext,
+  project: Project,
+  text: string,
+  selectedActionId: string | null,
+  chatId: () => string,
+  settings: LlmSettings,
+  fetchImpl?: FetchLike,
+): Promise<PromptOutcome & { usedModel: boolean }> {
+  const lastDirector = [...project.chat].reverse().find((c) => c.role === 'director');
+  if (lastDirector?.clarify && parseScopeAnswer(text.trim())) return { ...runPrompt(ctx, project, text, selectedActionId, chatId), usedModel: false };
+  const objectIds = project.scene.objects.map((o) => o.id);
+  let why: string;
+  try {
+    const durations = actionDurations(composePerformance(ctx, project.scene, project.actions));
+    const r = await interpretWithModel(text.trim(), { objectIds, actions: project.actions, durations, selectedActionId }, settings, fetchImpl);
+    const valid = validateCommands(r.commands, { objectIds });
+    if (valid.ok) {
+      const interpretation = [`${settings.model}: ${r.interpretation || 'interpreted'}.`];
+      return { ...runPrompt(ctx, project, text, selectedActionId, chatId, { commands: valid.commands, interpretation, unsupported: r.unsupported }), usedModel: true };
+    }
+    why = Array.isArray(r.commands) && r.commands.length === 0 ? 'the model found nothing to do' : `the model's commands were invalid (${valid.errors.slice(0, 2).join(' ')})`;
+  } catch (e) {
+    why = `the model is unavailable (${(e as Error).message})`;
+  }
+  const out = runPrompt(ctx, project, text, selectedActionId, chatId);
+  const note = `[Rule-based parser used: ${why}.] `;
+  out.reply = note + out.reply;
+  out.entries[1] = { ...out.entries[1], text: note + out.entries[1].text };
+  return { ...out, usedModel: false };
 }

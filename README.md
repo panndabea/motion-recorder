@@ -173,8 +173,8 @@ A second workspace in the same app. Open it with **AI Director Studio →** in t
   - **Send to MotionRecorder:** saves the baked take into the recorder's library and switches workspaces.
 
 ### How it works
-1. **Interpret:** `src/director/ai/commandParser.ts` is a deterministic, rule-based interpreter that turns text into structured commands (`create_sequence`, `append_actions`, `insert_actions`, `modify_actions`, `move_actions`, `delete_actions`, and the timing/style edits `set_duration`, `set_min_duration`, `set_max_duration`, `scale_duration`, `insert_pause`, `modify_style`). Contextual references (`scope: context | sequence | first_part | last_part`) are resolved to concrete action ids by `ai/editContext.ts` before anything is applied; `ai/directorSession.ts` runs the whole turn. It is **not** a language model. Phrases it cannot map are reported as unsupported, and no motion is invented for them.
-2. **Validate:** `commandSchema.ts` checks every command: action types (`walk_to`, `turn`, `reach`, `grip`, `lift`, `place`, `release`, `look_at`, `look_around`, `pause`, `bend`, `idle`, `sit`, `stand_up`), object references, value ranges and operations. Any future model-based interpreter has to emit the same JSON and pass the same validator.
+1. **Interpret:** `src/director/ai/commandParser.ts` is a deterministic, rule-based interpreter that turns text into structured commands (`create_sequence`, `append_actions`, `insert_actions`, `modify_actions`, `move_actions`, `delete_actions`, and the timing/style edits `set_duration`, `set_min_duration`, `set_max_duration`, `scale_duration`, `insert_pause`, `modify_style`). Contextual references (`scope: context | sequence | first_part | last_part`) are resolved to concrete action ids by `ai/editContext.ts` before anything is applied; `ai/directorSession.ts` runs the whole turn. Phrases it cannot map are reported as unsupported, and no motion is invented for them. Optionally a **local language model** interprets the text instead (see below); it produces the same commands.
+2. **Validate:** `commandSchema.ts` checks every command: action types (`walk_to`, `turn`, `reach`, `grip`, `lift`, `place`, `release`, `look_at`, `look_around`, `pause`, `bend`, `idle`, `sit`, `stand_up`), object references, value ranges and operations. The local model's output passes the same validator; anything invalid is never applied.
 3. **Plan:** `planning/actionPlanner.ts` simulates the glass state machine (on table → reached → held → placed → released) and where the actor stands. It inserts missing prerequisites, marked `auto` (walk to the glass before reaching, reach before grip, release after place), and rejects transitions it cannot fix, such as releasing a glass that is not held. `sceneConstraints.ts` computes approach points from the table bounds, the reach envelope and the placement spots.
 4. **Compose:** `animation/motionComposer.ts` builds the pose as a pure function of time `t`. Scrubbing and seeking are therefore exact, and playback is reproducible:
    - **Base motion:** the library clips `Idle_Loop` and `Walk_Loop`. The walk phase is driven by the distance travelled, so the feet match the root speed. Horizontal root motion goes on the `root` bone.
@@ -187,8 +187,23 @@ A second workspace in the same app. Open it with **AI Director Studio →** in t
 
 **Walking back:** “walk back”, “go back”, „geh zurück“ return to the start mark; “walk backwards” still steps 1.5 m backwards.
 
+### Local language model (optional)
+
+Free-form instructions (“Schlendere zum Tisch, setz dich kurz hin und komm zurück”) can be interpreted by a model running on your own machine. The browser talks directly to its OpenAI-compatible API; nothing leaves your computer.
+
+1. Install [Ollama](https://ollama.com) and run `ollama pull qwen2.5:3b` (about 2 GB). Ollama allows requests from `http://localhost:*` by default.
+   For LM Studio: load a model, start the local server and enable CORS; the URL is `http://localhost:1234/v1`.
+2. In the Director, click ⚙ next to “Director”, tick **Use a local model**, check URL (`http://localhost:11434/v1`) and model name, and press **Test connection**.
+
+How it stays safe and reproducible (`src/director/ai/llmInterpreter.ts`, `runPromptWithModel` in `ai/directorSession.ts`):
+- The model gets the action vocabulary, the scene object ids, the current sequence (ids, types, durations) and the selection, and must reply with `{interpretation, commands, unsupported}` (temperature 0). `pick_up` / `put_down` shorthands are expanded into `reach, grip, lift` / `place, release`.
+- The commands go through `validateCommands`, the planner (which still inserts walking, standing up, releasing) and the composer, exactly like parser output. The resulting action list, not the model, is what is saved, undone and exported, so a performance never depends on the model again.
+- If the server is unreachable, times out, or returns invalid commands, the rule-based parser handles the prompt and the reply starts with `[Rule-based parser used: …]`.
+- `DIRECTOR_LLM_URL=http://localhost:11434/v1 npx vitest run tests/unit/directorLlm.live.test.ts` runs a few free-form prompts against a real model.
+
 ### Limitations (Director)
-- The interpreter is rule-based. It understands the documented vocabulary and close variants, not arbitrary language. A browser-local LLM (e.g. WebLLM on WebGPU) could be added behind the same validator, but it is **not included**: it could not be verified on this development VM, which has no GPU.
+- Without a local model the interpreter is rule-based: it understands the documented vocabulary and close variants, not arbitrary language. With a model, free phrasing works, but only actions the engine can animate are possible; new motions are not generated from text.
+- The local model is optional and was tested with Ollama + `qwen2.5:3b` (CPU only, roughly 3–20 s per prompt). LM Studio uses the same OpenAI-compatible API but was not tested.
 - One actor, one table, one glass. Only the glass can be picked up.
 - There is no physics or collision avoidance. Walks are straight lines, and the planner only picks the table side to approach.
 - Fingers do not curl around the glass, and turning in place slides the feet slightly.

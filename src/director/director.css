@@ -44,7 +44,7 @@
 .ds-placeholder { display: grid; place-items: center; height: 100%; color: var(--ds-dim); }
 .ds-stage-tools { position: absolute; top: 10px; right: 10px; display: flex; gap: 6px; }
 .ds-stage-status { position: absolute; left: 10px; bottom: 10px; display: flex; gap: 14px; background: #0f0d15cc; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--ds-line); }
-.ds-chat { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.ds-chat { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .ds-messages { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
 .ds-msg { padding: 6px 9px; border-radius: 8px; max-width: 92%; white-space: pre-wrap; }
 .ds-msg.user { align-self: flex-end; background: #3a2a5e; }
@@ -79,3 +79,13 @@
 .ds-notices { position: fixed; right: 360px; top: 56px; display: flex; flex-direction: column; gap: 6px; z-index: 10; }
 .ds-notice { background: #221d2e; border: 1px solid var(--ds-line); padding: 8px 12px; border-radius: 6px; max-width: 380px; }
 .ds-notice.error { border-color: var(--ds-err); } .ds-notice.success { border-color: var(--ds-ok); }
+
+.ds-icon-btn { float: right; background: none; border: 1px solid var(--ds-line); border-radius: 6px; color: inherit; cursor: pointer; font-size: 12px; padding: 0 6px; }
+.ds-icon-btn[aria-expanded='true'] { border-color: var(--ds-accent); }
+.ds-llm { flex-shrink: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 6px; padding: 8px; margin-bottom: 8px; border: 1px solid var(--ds-line); border-radius: 8px; font-size: 12px; }
+.ds-llm label { display: flex; flex-direction: column; gap: 2px; }
+.ds-llm label.ds-check { flex-direction: row; align-items: center; gap: 6px; }
+.ds-llm input:not([type='checkbox']) { background: #120f18; border: 1px solid var(--ds-line); border-radius: 6px; color: inherit; padding: 3px 6px; font: inherit; }
+.ds-llm .ds-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ds-llm code { font-size: 11px; }
+.ds-msg.thinking { opacity: 0.7; font-style: italic; }

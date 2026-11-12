@@ -146,3 +146,43 @@ test('conversational timing edits retime the action and are undoable and persist
   await page.reload();
   await expect.poll(async () => page.evaluate(() => window.__director?.store.getState().perf?.duration ?? 0), { timeout: 15000 }).toBeCloseTo(long.duration, 3);
 });
+
+test('a local model interprets free-form prompts; invalid or missing model output falls back to the parser', async ({ page }) => {
+  let reply: object = {
+    interpretation: 'walk over, sit, come back',
+    commands: [{ operation: 'create_sequence', actions: [{ type: 'walk_to', target: 'table' }, { type: 'sit', target: 'chair' }, { type: 'walk_to', target: 'start' }] }],
+    unsupported: [],
+  };
+  await page.route('http://localhost:11434/v1/**', async (route) => {
+    if (route.request().url().endsWith('/models')) return route.fulfill({ json: { data: [{ id: 'qwen2.5:3b' }] } });
+    await new Promise((r) => setTimeout(r, 300));
+    await route.fulfill({ json: { choices: [{ message: { content: JSON.stringify(reply) } }] } });
+  });
+  await page.goto('/director?source=synthetic');
+  await expect(page.getByTestId('director-stage')).toBeVisible();
+  await expect(page.getByTestId('director-mode')).toHaveText('rule-based · offline');
+  await page.getByTestId('llm-toggle').click();
+  await page.getByTestId('llm-enabled').check();
+  await page.getByTestId('llm-test').click();
+  await expect(page.getByTestId('llm-status')).toContainText('Connected. Models: qwen2.5:3b');
+  await expect(page.getByTestId('director-mode')).toHaveText('local model · qwen2.5:3b');
+
+  await page.getByTestId('director-input').fill('schlender rüber, hock dich kurz hin und dann zurück');
+  await page.getByTestId('director-send').click();
+  await expect(page.getByTestId('chat-thinking')).toBeVisible();
+  await expect(page.getByTestId('chat-director').last()).toContainText('qwen2.5:3b: walk over, sit, come back.');
+  expect((await state(page)).actions.map((a) => a.type)).toEqual(['walk_to', 'walk_to', 'sit', 'pause', 'stand_up', 'walk_to']);
+
+  reply = { interpretation: 'x', commands: [{ operation: 'append_actions', actions: [{ type: 'fly', target: 'camera' }] }], unsupported: [] };
+  await direct(page, 'Look to the left.');
+  await expect(page.getByTestId('chat-director').last()).toContainText("Rule-based parser used: the model's commands were invalid");
+  expect((await state(page)).actions.at(-1)!.type).toBe('look_at');
+
+  // The setting survives a reload; with the server gone the parser still works.
+  await page.unroute('http://localhost:11434/v1/**');
+  await page.route('http://localhost:11434/v1/**', (route) => route.abort('connectionrefused'));
+  await page.reload();
+  await expect(page.getByTestId('director-mode')).toHaveText('local model · qwen2.5:3b');
+  await direct(page, 'Walk to the table.');
+  await expect(page.getByTestId('chat-director').last()).toContainText('Rule-based parser used: the model is unavailable');
+});
