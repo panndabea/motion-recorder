@@ -4,7 +4,7 @@
  * so moving an object simply re-plans the performance.
  */
 export type Vec3 = [number, number, number];
-export type ObjectKind = 'actor' | 'table' | 'glass' | 'ground' | 'camera' | 'light';
+export type ObjectKind = 'actor' | 'table' | 'glass' | 'chair' | 'ground' | 'camera' | 'light';
 
 export interface SceneObject {
   id: string;
@@ -31,6 +31,9 @@ export interface DirectorScene {
 export const DEFAULT_TABLE_SIZE: Vec3 = [1.2, 0.75, 0.7];
 /** Glass: radius, height, unused. */
 export const DEFAULT_GLASS_SIZE: Vec3 = [0.035, 0.12, 0];
+/** Chair: width (x), seat height (y), seat depth (z). The chair faces its local +Z; the backrest is at -Z. */
+export const DEFAULT_CHAIR_SIZE: Vec3 = [0.46, 0.45, 0.46];
+export const CHAIR_BACK_HEIGHT = 0.45;
 /** Table top board thickness. */
 export const TABLE_TOP_THICKNESS = 0.04;
 
@@ -42,11 +45,16 @@ export function defaultScene(): DirectorScene {
       { id: 'actor', kind: 'actor', name: 'Actor', position: [0.9, 0, -0.4], rotationY: 0 },
       { id: 'table', kind: 'table', name: 'Table', position: [0, 0, 1.6], rotationY: 0, size: [...DEFAULT_TABLE_SIZE] },
       { id: 'glass', kind: 'glass', name: 'Glass', position: [-0.2, DEFAULT_TABLE_SIZE[1], 1.36], rotationY: 0, size: [...DEFAULT_GLASS_SIZE] },
+      defaultChair(),
       { id: 'ground', kind: 'ground', name: 'Ground', position: [0, 0, 0], rotationY: 0, size: [12, 0, 12] },
       { id: 'camera', kind: 'camera', name: 'Camera', position: [3.6, 2.3, -2.4], rotationY: 0, value: 40, target: [0.2, 0.85, 0.9] },
       { id: 'key-light', kind: 'light', name: 'Key light', position: [3, 6, 2], rotationY: 0, value: 2.2 },
     ],
   };
+}
+
+export function defaultChair(): SceneObject {
+  return { id: 'chair', kind: 'chair', name: 'Chair', position: [-1.08, 0, 1.6], rotationY: 90, size: [...DEFAULT_CHAIR_SIZE] };
 }
 
 export function getObject(scene: DirectorScene, id: string): SceneObject | undefined {

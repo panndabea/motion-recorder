@@ -90,7 +90,7 @@ export function InspectorPanel() {
               state: {glassState.replace('_', ' ')}
             </div>
           )}
-          {(['actor', 'table', 'glass', 'camera', 'light'] as string[]).includes(obj.kind) && (
+          {(['actor', 'table', 'glass', 'chair', 'camera', 'light'] as string[]).includes(obj.kind) && (
             <>
               <Num label="X" value={obj.position[0]} onChange={(v) => updateObject(obj.id, { position: [v, obj.position[1], obj.position[2]] })} testId="pos-x" />
               {obj.kind !== 'actor' && obj.kind !== 'glass' && <Num label="Y" value={obj.position[1]} onChange={(v) => updateObject(obj.id, { position: [obj.position[0], v, obj.position[2]] })} />}
@@ -107,6 +107,7 @@ export function InspectorPanel() {
             </>
           )}
           {obj.kind === 'light' && <Num label="Intensity" value={obj.value ?? 2} step={0.2} min={0} max={10} onChange={(v) => updateObject(obj.id, { value: Math.max(0, v) })} />}
+          {obj.kind === 'chair' && <p className="ds-hint">The actor sits facing the chair's front (rotation 0 faces +Z). Moving it re-plans the performance.</p>}
           {obj.kind === 'ground' && <p className="ds-hint">The ground is fixed at y = 0.</p>}
         </div>
       ) : (

@@ -5,7 +5,7 @@ import { retime, type Measure } from '../timeline/retiming';
 /** Actions whose duration is their content (not derived from speed). */
 const CONTENT_TYPES: ActionType[] = ['pause', 'idle', 'look_around', 'look_at', 'bend'];
 import { forwardXZ, isOnTable, rad, requireObject, wrapAngle, yawTowards, type DirectorScene, type Vec3 } from '../scene/sceneModel';
-import { glassApproach, inReach, placementPoint, tableApproach, type Stand } from './sceneConstraints';
+import { chairStand, glassApproach, inReach, placementPoint, tableApproach, type Stand } from './sceneConstraints';
 
 export type GlassPhase = 'on_table' | 'available' | 'reached' | 'held' | 'placed' | 'released';
 
@@ -21,6 +21,8 @@ export interface PlanState {
   pickedFrom: Vec3 | null;
   /** Target of the last reach (cleared by any action that moves the body). */
   reaching: string | null;
+  /** Sitting on the chair. */
+  seated: boolean;
 }
 
 export interface PlanStep {
@@ -33,7 +35,7 @@ export interface PlanStep {
 
 export interface PlanIssue {
   index: number;
-  code: 'out_of_reach' | 'not_reaching' | 'not_holding' | 'already_holding' | 'table_out_of_reach' | 'not_placed' | 'nothing_to_release' | 'invalid_target' | 'release_missing';
+  code: 'seated' | 'not_at_chair' | 'not_seated' | 'already_seated' | 'holding_while_sitting' | 'no_chair' | 'out_of_reach' | 'not_reaching' | 'not_holding' | 'already_holding' | 'table_out_of_reach' | 'not_placed' | 'nothing_to_release' | 'invalid_target' | 'release_missing';
   message: string;
 }
 
@@ -47,6 +49,10 @@ export interface Plan {
 export const WALK_STEP_DISTANCE = 1.5;
 
 const GAZE_ONLY: ActionType[] = ['look_at', 'look_around', 'pause', 'idle'];
+/** How long the actor stays seated when the prompt sits down and then moves on without saying how long. */
+const SEATED_HOLD = 1.5;
+/** What the actor can do while seated. */
+const SEATED_OK: ActionType[] = [...GAZE_ONLY, 'bend', 'sit', 'stand_up'];
 
 export function initialState(scene: DirectorScene): PlanState {
   const actor = requireObject(scene, 'actor');
@@ -60,6 +66,7 @@ export function initialState(scene: DirectorScene): PlanState {
     glassPhase: isOnTable(glass, table) ? 'on_table' : 'available',
     pickedFrom: null,
     reaching: null,
+    seated: false,
   };
 }
 
@@ -87,6 +94,7 @@ export function simulate(actions: DirectorAction[], scene: DirectorScene): Plan 
     if (s.glassPhase === 'placed' && !['release', ...GAZE_ONLY].includes(a.type)) {
       issue(i, 'release_missing', 'The glass must be released before the actor does something else.');
     }
+    if (s.seated && !SEATED_OK.includes(a.type)) issue(i, 'seated', `The actor has to stand up before ${a.type.replace('_', ' ')}.`);
     switch (a.type) {
       case 'walk_to': {
         if (a.target === 'table') {
@@ -100,6 +108,11 @@ export function simulate(actions: DirectorAction[], scene: DirectorScene): Plan 
           if (s.held === 'glass') issue(i, 'invalid_target', 'The actor is already holding the glass.');
           else s.stand = glassApproach(scene, s.glassPos, s.stand.pos, hand);
         } else if (a.target === 'start') s.stand = { ...startStand, pos: [...startStand.pos] };
+        else if (a.target === 'chair') {
+          const c = chairStand(scene);
+          if (c) s.stand = c;
+          else issue(i, 'no_chair', 'The scene has no chair.');
+        }
         else if (a.target === 'camera') {
           const cam = requireObject(scene, 'camera');
           const c: [number, number] = [cam.position[0], cam.position[2]];
@@ -146,6 +159,19 @@ export function simulate(actions: DirectorAction[], scene: DirectorScene): Plan 
         }
         break;
       }
+      case 'sit': {
+        const c = chairStand(scene);
+        if (!c) issue(i, 'no_chair', 'The scene has no chair to sit on.');
+        else if (s.seated) issue(i, 'already_seated', 'The actor is already sitting.');
+        else if (s.held) issue(i, 'holding_while_sitting', `Put the ${s.held} down before sitting.`);
+        else if (Math.hypot(c.pos[0] - s.stand.pos[0], c.pos[1] - s.stand.pos[1]) > 0.1 || Math.abs(wrapAngle(c.yaw - s.stand.yaw)) > 0.2) issue(i, 'not_at_chair', 'The actor is not in front of the chair.');
+        else s.seated = true;
+        break;
+      }
+      case 'stand_up':
+        if (!s.seated) issue(i, 'not_seated', 'The actor is not sitting.');
+        else s.seated = false;
+        break;
       case 'lift':
         if (s.held !== 'glass') issue(i, 'not_holding', 'The actor is not holding the glass.');
         break;
@@ -205,6 +231,13 @@ export function resolveDependencies(input: DirectorAction[], scene: DirectorScen
       notes.push(why);
     };
     switch (first.code) {
+      case 'seated':
+        if (actions[i - 1]?.type === 'sit') insert([{ type: 'pause', duration: SEATED_HOLD }, { type: 'stand_up' }], `Added a short seated pause and "stand up" before ${a.type.replace('_', ' ')}.`);
+        else insert([{ type: 'stand_up' }], `Added "stand up" before ${a.type.replace('_', ' ')}.`);
+        break;
+      case 'not_at_chair':
+        insert([{ type: 'walk_to', target: 'chair', speed: a.speed }], 'Added "walk to chair" before sitting down.');
+        break;
       case 'out_of_reach':
         insert([{ type: 'walk_to', target: 'glass', speed: a.speed }], `Added "walk to glass" before ${a.type}: the glass was out of reach.`);
         break;
@@ -227,6 +260,10 @@ export function resolveDependencies(input: DirectorAction[], scene: DirectorScen
         notes.push('Added "release" after placing the glass.');
         break;
       }
+      case 'not_seated':
+      case 'already_seated':
+      case 'holding_while_sitting':
+      case 'no_chair':
       case 'nothing_to_release':
       case 'already_holding':
       case 'invalid_target':

@@ -18,6 +18,7 @@ export interface ComposerRig {
 
 export const IDLE_CLIP = 'Idle_Loop';
 export const WALK_CLIP = 'Walk_Loop';
+export const SIT_CLIPS = { enter: 'Sitting_Enter', idle: 'Sitting_Idle_Loop', exit: 'Sitting_Exit' } as const;
 
 const HAND_BONES: Record<Hand, { shoulder: string; upper: string; lower: string; hand: string }> = {
   right: { shoulder: BONES.shoulderR, upper: BONES.upperArmR, lower: BONES.forearmR, hand: BONES.handR },
@@ -52,6 +53,14 @@ export interface PoseParams {
   /** Radians, relative to the body (yaw left-positive, pitch down-positive). */
   gaze: [number, number];
   arms: Record<Hand, ArmChannel>;
+  /** Full-body clip layers blended over the idle base, in order (sitting down, seated, standing up). */
+  layers?: ClipLayer[];
+}
+
+export interface ClipLayer {
+  clip: ClipSampler;
+  time: number;
+  weight: number;
 }
 
 /** Rig-dependent data, computed once per mannequin. */
@@ -60,6 +69,9 @@ export class ComposerContext {
   readonly scale: number;
   readonly idle: ClipSampler;
   readonly walk: ClipSampler;
+  readonly sitEnter: ClipSampler;
+  readonly sitIdle: ClipSampler;
+  readonly sitExit: ClipSampler;
   /** World metres covered by one Walk_Loop cycle. */
   readonly strideLength: number;
   readonly restRoot: Quaternion;
@@ -82,6 +94,9 @@ export class ComposerContext {
     };
     this.idle = new ClipSampler(find(IDLE_CLIP), this.def);
     this.walk = new ClipSampler(find(WALK_CLIP), this.def);
+    this.sitEnter = new ClipSampler(find(SIT_CLIPS.enter), this.def);
+    this.sitIdle = new ClipSampler(find(SIT_CLIPS.idle), this.def);
+    this.sitExit = new ClipSampler(find(SIT_CLIPS.exit), this.def);
     const bone = (n: string) => {
       const b = this.def.bones.find((x) => x.name === n);
       if (!b) throw new Error(`Rig has no bone ${n}`);
@@ -172,6 +187,23 @@ export class ComposerContext {
   compose(p: PoseParams): { pose: LocalPose; fk: ReturnType<typeof forwardKinematics> } {
     const pose: LocalPose = { rotations: new Map(), translations: new Map() };
     this.idle.sample(p.t, pose.rotations, pose.translations);
+    for (const layer of p.layers ?? []) {
+      if (layer.weight <= 1e-4) continue;
+      const lr = new Map<string, Quaternion>();
+      const lt = new Map<string, Vector3>();
+      layer.clip.sample(layer.time, lr, lt);
+      const w = Math.min(1, layer.weight);
+      for (const [name, q] of lr) {
+        const base = pose.rotations.get(name);
+        if (base) base.slerp(q, w).normalize();
+        else pose.rotations.set(name, q.clone());
+      }
+      for (const [name, v] of lt) {
+        const base = pose.translations.get(name);
+        if (base) base.lerp(v, w);
+        else pose.translations.set(name, v.clone());
+      }
+    }
     if (p.walkWeight > 1e-4) {
       const wr = new Map<string, Quaternion>();
       const wt = new Map<string, Vector3>();
@@ -347,6 +379,8 @@ interface SegData extends Segment {
   strideScale: number;
   /** Prepare segments: gaze yaw toward the walk direction. */
   gazeYaw?: number;
+  /** Time the actor finished sitting down (drives the seated idle loop). */
+  seatedSince?: number;
   prev: Channels;
   /** Interaction target positions (world). */
   hand: Hand;
@@ -405,6 +439,7 @@ export function composePerformance(ctx: ComposerContext, scene: DirectorScene, a
   let time = 0;
   let dist = 0;
   let gait = 0;
+  let seatedSince = 0;
   const prevPlaceHand: { v?: Vector3; bend?: number } = {};
 
   const carry = (pos: [number, number], yaw: number, hand: Hand) =>
@@ -477,8 +512,10 @@ export function composePerformance(ctx: ComposerContext, scene: DirectorScene, a
       }
       return;
     }
-    const base = a.duration ?? (BASE_DURATION[a.type] ?? 1) * (a.type === 'pause' || a.type === 'idle' ? 1 : k);
+    const natural = a.type === 'sit' ? ctx.sitEnter.duration : a.type === 'stand_up' ? ctx.sitExit.duration : (BASE_DURATION[a.type] ?? 1);
+    const base = a.duration ?? natural * (a.type === 'pause' || a.type === 'idle' ? 1 : k);
     const extra: Partial<SegData> = {};
+    if (b.seated) extra.seatedSince = seatedSince;
     const pos = b.stand.pos;
     const yaw = b.stand.yaw;
     if (a.type === 'reach' || a.type === 'grip') {
@@ -498,7 +535,7 @@ export function composePerformance(ctx: ComposerContext, scene: DirectorScene, a
     }
     const s = push(step, i, 'main', base, extra);
     if (a.type === 'place') prevPlaceHand.v = undefined;
-    void s;
+    if (a.type === 'sit' && af.seated) seatedSince = s.end;
   });
 
   if (segs.length === 0) {
@@ -631,6 +668,11 @@ export function composePerformance(ctx: ComposerContext, scene: DirectorScene, a
         c.gaze = [A * Math.sin(2 * Math.PI * f * u) * env, (nervous ? rad(6) * Math.sin(2 * Math.PI * 3.3 * u) : rad(-3)) * env + c.gaze[1]];
         break;
       }
+      case 'sit':
+      case 'stand_up':
+        restArm();
+        c.gaze = [0, rad(10) * Math.sin(Math.PI * u)];
+        break;
       case 'bend':
         restArm();
         c.bend = a.bend ?? 35;
@@ -666,6 +708,20 @@ export function composePerformance(ctx: ComposerContext, scene: DirectorScene, a
     return { root, ch: blend(s, t, desired(s, u, root)) };
   };
 
+  /** Sitting: Sitting_Enter, then Sitting_Idle_Loop (from the moment the actor sat), then Sitting_Exit. */
+  const layersAt = (s: SegData, t: number): ClipLayer[] | undefined => {
+    const T = s.end - s.start;
+    const tt = Math.max(0, Math.min(T, t - s.start));
+    const clipTime = (c: ClipSampler) => Math.min(c.duration - 1e-4, (tt / T) * c.duration);
+    if (s.type === 'sit' && s.step.after.seated) return [{ clip: ctx.sitEnter, time: clipTime(ctx.sitEnter), weight: smooth(tt / Math.min(0.3, T / 3)) }];
+    if (!s.step.before.seated) return undefined;
+    const seated: ClipLayer = { clip: ctx.sitIdle, time: t - (s.seatedSince ?? s.start), weight: 1 };
+    if (s.type !== 'stand_up') return [seated];
+    const out = smooth((T - tt) / Math.min(0.3, T / 3));
+    seated.weight = out;
+    return [seated, { clip: ctx.sitExit, time: clipTime(ctx.sitExit), weight: Math.min(out, smooth(tt / Math.min(0.25, T / 4))) }];
+  };
+
   const poseAt = (s: SegData, t: number) => {
     const { root, ch } = channelsAt(s, t);
     const amp = s.phase === 'walk' ? (s.step.action.amplitude ?? (s.step.action.style === 'exaggerated' ? 1.6 : s.step.action.style === 'cautious' ? 0.75 : 1)) * s.strideScale : 1;
@@ -679,6 +735,7 @@ export function composePerformance(ctx: ComposerContext, scene: DirectorScene, a
       bend: ch.bend,
       gaze: ch.gaze,
       arms: ch.arms,
+      layers: layersAt(s, t),
     });
     return { ...out, root };
   };
@@ -804,6 +861,8 @@ export function composePerformance(ctx: ComposerContext, scene: DirectorScene, a
     switch (a.type) {
       case 'walk_to':
       case 'turn':
+      case 'sit':
+      case 'stand_up':
         return ['root', 'body'];
       case 'reach':
       case 'lift':

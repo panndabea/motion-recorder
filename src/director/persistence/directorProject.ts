@@ -1,6 +1,6 @@
 import type { DirectorAction } from '../ai/commandSchema';
 import { validateCommands } from '../ai/commandSchema';
-import { defaultScene, validateScene, type DirectorScene, type SceneObject, type Vec3 } from '../scene/sceneModel';
+import { defaultChair, defaultScene, validateScene, type DirectorScene, type SceneObject, type Vec3 } from '../scene/sceneModel';
 
 export const DIRECTOR_FORMAT = 'director-project';
 export const DIRECTOR_VERSION = 1;
@@ -61,7 +61,7 @@ export function newProject(rig: { id: string; signature: string }, name = 'Untit
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const vec3 = (v: unknown): v is Vec3 => Array.isArray(v) && v.length === 3 && v.every((x) => typeof x === 'number' && Number.isFinite(x));
-const KINDS = ['actor', 'table', 'glass', 'ground', 'camera', 'light'];
+const KINDS = ['actor', 'table', 'glass', 'chair', 'ground', 'camera', 'light'];
 
 export type ProjectValidation = { ok: true; project: DirectorProject; warnings: string[] } | { ok: false; errors: string[] };
 
@@ -96,6 +96,8 @@ export function validateProject(input: unknown, rig?: { id: string; signature: s
         ...(vec3(o.target) ? { target: [...o.target] as Vec3 } : {}),
       });
     }
+    // Projects from before the chair existed get the default one (ids stay stable).
+    if (!objects.some((o) => o.id === 'chair')) objects.splice(Math.max(0, objects.findIndex((o) => o.kind === 'ground')), 0, defaultChair());
     scene = { objects, showGrid: sc.showGrid !== false, shadows: sc.shadows !== false };
     errors.push(...validateScene(scene));
   }

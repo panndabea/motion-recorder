@@ -15,6 +15,8 @@ export const ACTION_TYPES = [
   'pause',
   'bend',
   'idle',
+  'sit',
+  'stand_up',
 ] as const;
 export type ActionType = (typeof ACTION_TYPES)[number];
 
@@ -27,7 +29,7 @@ export type Direction = (typeof DIRECTIONS)[number];
 export type Hand = 'right' | 'left';
 
 /** Targets the planner understands: scene object ids plus the actor's start position. */
-export const TARGETS = ['table', 'glass', 'start', 'camera'] as const;
+export const TARGETS = ['table', 'glass', 'chair', 'start', 'camera'] as const;
 
 export interface ActionSpec {
   type: ActionType;
@@ -164,6 +166,8 @@ function validateSpec(v: unknown, where: string, ctx: ValidationContext, errors:
   if ((spec.type === 'reach' || spec.type === 'grip') && spec.target !== 'glass') {
     return errors.push(`${where}: only the glass can be gripped (got "${spec.target}").`), null;
   }
+  if (spec.type === 'sit' && spec.target === undefined) spec.target = 'chair';
+  if (spec.type === 'sit' && spec.target !== 'chair') return errors.push(`${where}: the actor can only sit on the chair (got "${spec.target}").`), null;
   if (spec.type === 'walk_to' && spec.target === undefined && spec.direction === undefined) {
     return errors.push(`${where}: walk_to needs a target or direction.`), null;
   }

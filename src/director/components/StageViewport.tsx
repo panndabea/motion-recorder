@@ -4,7 +4,7 @@ import { Grid, OrbitControls, TransformControls } from '@react-three/drei';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import { DoubleSide, type Group } from 'three';
 import { applyPose, resetToRest, type MannequinRig } from '../../rig/mannequinLoader';
-import { DEFAULT_TABLE_SIZE, TABLE_TOP_THICKNESS, glassSize, rad, type SceneObject } from '../scene/sceneModel';
+import { CHAIR_BACK_HEIGHT, DEFAULT_CHAIR_SIZE, DEFAULT_TABLE_SIZE, TABLE_TOP_THICKNESS, glassSize, rad, type SceneObject } from '../scene/sceneModel';
 import { useShallow } from 'zustand/react/shallow';
 import { tick, updateCamera, updateObject, useDirector } from '../state/directorStore';
 
@@ -22,6 +22,30 @@ function Table({ obj, onSelect }: { obj: SceneObject; onSelect: () => void }) {
           <mesh key={`${sx}${sz}`} position={[sx * (w / 2 - 0.05), legH / 2, sz * (d / 2 - 0.05)]} castShadow>
             <boxGeometry args={[0.05, legH, 0.05]} />
             <meshStandardMaterial color="#6e4b2a" roughness={0.8} />
+          </mesh>
+        )),
+      )}
+    </group>
+  );
+}
+
+function Chair({ obj, onSelect }: { obj: SceneObject; onSelect: () => void }) {
+  const [w, h, d] = obj.size ?? DEFAULT_CHAIR_SIZE;
+  return (
+    <group onClick={(e) => (e.stopPropagation(), onSelect())}>
+      <mesh position={[0, h - 0.025, 0]} castShadow receiveShadow>
+        <boxGeometry args={[w, 0.05, d]} />
+        <meshStandardMaterial color="#5f7a8c" roughness={0.7} />
+      </mesh>
+      <mesh position={[0, h + CHAIR_BACK_HEIGHT / 2, -d / 2 + 0.02]} castShadow>
+        <boxGeometry args={[w, CHAIR_BACK_HEIGHT, 0.04]} />
+        <meshStandardMaterial color="#5f7a8c" roughness={0.7} />
+      </mesh>
+      {[-1, 1].flatMap((sx) =>
+        [-1, 1].map((sz) => (
+          <mesh key={`${sx}${sz}`} position={[sx * (w / 2 - 0.03), (h - 0.05) / 2, sz * (d / 2 - 0.03)]} castShadow>
+            <boxGeometry args={[0.04, h - 0.05, 0.04]} />
+            <meshStandardMaterial color="#45596a" roughness={0.8} />
           </mesh>
         )),
       )}
@@ -81,7 +105,7 @@ function Gizmo({ obj, controls }: { obj: SceneObject; controls: React.RefObject<
       <TransformControls
         object={target as React.RefObject<Group>}
         mode="translate"
-        showY={obj.kind !== 'actor' && obj.kind !== 'glass' && obj.kind !== 'table'}
+        showY={obj.kind !== 'actor' && obj.kind !== 'glass' && obj.kind !== 'table' && obj.kind !== 'chair'}
         size={0.7}
         onMouseDown={() => controls.current && (controls.current.enabled = false)}
         onMouseUp={() => {
@@ -102,8 +126,9 @@ export function StageViewport({ rig }: { rig: MannequinRig }) {
   const glass = useRef<Group>(null);
   const table = objects.find((o) => o.id === 'table')!;
   const glassObj = objects.find((o) => o.id === 'glass')!;
+  const chair = objects.find((o) => o.id === 'chair');
   const light = objects.find((o) => o.kind === 'light');
-  const sel = objects.find((o) => o.id === selected && ['actor', 'table', 'glass', 'light'].includes(o.kind));
+  const sel = objects.find((o) => o.id === selected && ['actor', 'table', 'glass', 'chair', 'light'].includes(o.kind));
   const select = (id: string) => useDirector.setState({ selectedObject: id, selectedAction: null });
 
   const resetCamera = () => {
@@ -129,6 +154,11 @@ export function StageViewport({ rig }: { rig: MannequinRig }) {
         <group position={table.position} rotation={[0, rad(table.rotationY), 0]}>
           <Table obj={table} onSelect={() => select('table')} />
         </group>
+        {chair && (
+          <group position={chair.position} rotation={[0, rad(chair.rotationY), 0]}>
+            <Chair obj={chair} onSelect={() => select('chair')} />
+          </group>
+        )}
         <group ref={glass} onClick={(e) => (e.stopPropagation(), select('glass'))}>
           <GlassMesh size={glassSize(glassObj)} />
         </group>

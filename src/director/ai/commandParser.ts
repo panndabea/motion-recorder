@@ -25,6 +25,7 @@ const has = (s: string, re: RegExp) => re.test(s);
 const TARGET_PATTERNS: [string, RegExp][] = [
   ['table', /\b(table|desk|tisch)\b/],
   ['glass', /\b(glass|cup|glas|becher)\b/],
+  ['chair', /\b(chair|seat|stuhl|sessel)\b/],
   ['camera', /\b(camera|kamera|viewer|zuschauer)\b/],
   ['start', /\b(start|starting (point|position)|where (he|she|it) (started|was)|startpunkt|anfang|zurück zum start)\b/],
 ];
@@ -79,6 +80,8 @@ const withOpt = (spec: ActionSpec, s: string): ActionSpec => {
 
 /** Phrases that describe a part of the sequence (for edits). */
 function scopeMatch(s: string): ActionMatch | null {
+  if (has(s, /\b(stand(ing)? up|getting up|aufstehen)\b/)) return { type: 'stand_up' };
+  if (has(s, /\b(sit(ting)?( down)?|hinsetzen|sitzen)\b/)) return { type: 'sit' };
   if (has(s, /\b(walk(ing)?|gang|gehen|laufen|lauf)\b/)) return { type: 'walk_to' };
   if (has(s, /\b(look(ing)? around|umschauen|umsehen)\b/)) return { type: 'look_around' };
   if (has(s, /\b(look(ing)?|gaze|blick)\b/)) return { type: ['look_at', 'look_around'] };
@@ -265,10 +268,13 @@ function parseActions(s: string, out: ParseResult, quiet = false): ActionSpec[] 
 
 function parseOne(p: string): ActionSpec[] | null {
   const bendWhile = has(p, /\b(bending|bent|stooped|hunched|leaning)\b( forward)?|\bgebückt|vorgebeugt/);
+  if (has(p, /\b(stand(s|ing)? up|get(s|ting)? up|rise|aufstehen|steh\w* auf|erheb\w*)\b/)) return [withOpt({ type: 'stand_up' }, p)];
+  if (has(p, /\b(sit(s|ting)?( down)?|take a seat|have a seat|be seated|setz\w* (dich|sich)( hin)?|hinsetzen|hinsetz\w*|sitzen|platz nehmen|nimm platz|nehm\w* platz)\b/)) return [withOpt({ type: 'sit', target: 'chair' }, p)];
   if (has(p, /\b(walk|go|move|step|stroll|head|come|approach|geh\w*|lauf\w*|lauf|schreit\w*|komm\w*)\b/) && !has(p, /\b(look|schau)/)) {
     const target = findTarget(p);
     const spec: ActionSpec = target ? { type: 'walk_to', target } : { type: 'walk_to', direction: findDirection(p) ?? 'forward' };
-    if (has(p, /\b(back to the start|back to start|zurück\b)/) && !target) spec.target = 'start';
+    // "walk back" / "go back" / "come back": return to the start mark (not a backwards walk).
+    if (!target && has(p, /\b(back|zurück)\b/) && !has(p, /\b(backwards|rückwärts)\b/)) spec.target = 'start';
     if (spec.target) delete spec.direction;
     const w = withOpt(spec, p);
     if (bendWhile) w.bend = 25;

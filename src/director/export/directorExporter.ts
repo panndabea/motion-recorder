@@ -4,7 +4,7 @@ import type { RigDefinition } from '../../rig/rigDefinition';
 import type { MotionData } from '../../recording/motionFormat';
 import { buildAnimationDocument } from '../../export/glbExporter';
 import { importMotionGlb } from '../../import/glbImporter';
-import { glassSize, rad, requireObject, TABLE_TOP_THICKNESS, DEFAULT_TABLE_SIZE, type DirectorScene } from '../scene/sceneModel';
+import { glassSize, rad, requireObject, TABLE_TOP_THICKNESS, CHAIR_BACK_HEIGHT, DEFAULT_CHAIR_SIZE, DEFAULT_TABLE_SIZE, type DirectorScene } from '../scene/sceneModel';
 import type { ObjectTrack } from '../animation/animationBaker';
 
 interface Geo {
@@ -120,7 +120,16 @@ export async function exportSceneGlb(sourceBytes: ArrayBuffer, motion: MotionDat
   const ground = requireObject(scene, 'ground');
   const [gw, , gd] = ground.size ?? [12, 0, 12];
   const groundNode = meshNode(doc, buffer, 'ground', box(gw, 0.02, gd, 0, -0.01, 0), floor);
-  for (const n of [tableNode, glassNode, groundNode]) gltfScene.addChild(n);
+  const nodes = [tableNode, glassNode, groundNode];
+  const chair = scene.objects.find((o) => o.id === 'chair');
+  if (chair) {
+    const [cw, ch, cd] = chair.size ?? DEFAULT_CHAIR_SIZE;
+    const chairLegs = [-1, 1].flatMap((sx) => [-1, 1].map((sz) => box(0.04, ch - 0.05, 0.04, sx * (cw / 2 - 0.03), (ch - 0.05) / 2, sz * (cd / 2 - 0.03))));
+    const seatMat = doc.createMaterial('Chair').setBaseColorFactor([0.37, 0.48, 0.55, 1]).setRoughnessFactor(0.7);
+    const geo = merge(box(cw, 0.05, cd, 0, ch - 0.025, 0), box(cw, CHAIR_BACK_HEIGHT, 0.04, 0, ch + CHAIR_BACK_HEIGHT / 2, -cd / 2 + 0.02), ...chairLegs);
+    nodes.push(meshNode(doc, buffer, 'chair', geo, seatMat).setTranslation([...chair.position]).setRotation(yawQuat(chair.rotationY)));
+  }
+  for (const n of nodes) gltfScene.addChild(n);
 
   if (anim) {
     const input = doc.createAccessor().setType(Accessor.Type.SCALAR).setArray(new Float32Array(glass.times)).setBuffer(buffer);

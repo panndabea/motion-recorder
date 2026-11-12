@@ -32,6 +32,8 @@ const FACTOR_RANGE: Record<ActionType, [number, number]> = {
   pause: [0, Infinity],
   idle: [0, Infinity],
   bend: [0.3, Infinity],
+  sit: [0.6, 3],
+  stand_up: [0.6, 3],
 };
 const MIN_SECONDS = 0.15;
 

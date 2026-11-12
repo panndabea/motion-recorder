@@ -102,6 +102,18 @@ export function glassApproach(scene: DirectorScene, glassPos: Vec3, from: [numbe
   return { pos: [g[0] - dir[0] * 0.38 - r[0] * s, g[1] - dir[1] * 0.38 - r[1] * s], yaw };
 }
 
+/** Seat centre lies this far behind the actor's root once seated (from the Sitting_* clips' hip travel). */
+export const SIT_ROOT_OFFSET = 0.3;
+
+/** Where the actor stands (facing the same way as the chair) right before sitting down; null without a chair. */
+export function chairStand(scene: DirectorScene): Stand | null {
+  const chair = scene.objects.find((o) => o.id === 'chair');
+  if (!chair) return null;
+  const yaw = (chair.rotationY * Math.PI) / 180;
+  const f = forwardXZ(yaw);
+  return { pos: [chair.position[0] + f[0] * SIT_ROOT_OFFSET, chair.position[2] + f[1] * SIT_ROOT_OFFSET], yaw };
+}
+
 /** Where the actor stands to work at the table, approaching from `from`. */
 export function tableApproach(scene: DirectorScene, from: [number, number]): Stand {
   const f = tableFrame(requireObject(scene, 'table'));

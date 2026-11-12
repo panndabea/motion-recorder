@@ -1,6 +1,6 @@
 import { useDirector } from '../state/directorStore';
 
-const ICON: Record<string, string> = { actor: '🧍', table: '▭', glass: '◌', ground: '▦', camera: '⌖', light: '☀' };
+const ICON: Record<string, string> = { actor: '🧍', table: '▭', glass: '◌', chair: '⑂', ground: '▦', camera: '⌖', light: '☀' };
 
 export function SceneHierarchy() {
   const objects = useDirector((s) => s.project.scene.objects);
