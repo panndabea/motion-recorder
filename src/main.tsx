@@ -5,6 +5,7 @@ import { App } from './App';
 import './styles.css';
 
 const DirectorStudio = lazy(() => import('./director/DirectorStudioPage'));
+const TextToMotionLab = lazy(() => import('./lab/textToMotion/TextToMotionLab'));
 
 function RootRedirect() {
   const { search } = useLocation();
@@ -22,6 +23,14 @@ createRoot(document.getElementById('root')!).render(
           element={
             <Suspense fallback={<div className="placeholder">Loading AI Director Studio…</div>}>
               <DirectorStudio />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/lab/text-to-motion"
+          element={
+            <Suspense fallback={<div className="placeholder">Loading Text-to-Motion lab…</div>}>
+              <TextToMotionLab />
             </Suspense>
           }
         />
