@@ -13,6 +13,7 @@ const PRESETS: Record<CameraPreset, { pos: [number, number, number]; target: [nu
   side: { pos: [2.9, 1.25, 0.3], target: [0, 0.95, 0.3] },
   'three-quarter': { pos: [-1.7, 1.6, 2.3], target: [0, 0.95, 0.25] },
   top: { pos: [0, 5, 0.8], target: [0, 0, 0.6] },
+  wide: { pos: [-3.6, 3.6, 5.2], target: [0.3, 0.4, 1.2] },
   'close-up': { pos: [-1.0, 1.6, 1.6], target: [-0.1, 1.2, 0.2] },
 };
 

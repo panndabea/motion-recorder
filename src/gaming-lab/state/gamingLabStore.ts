@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { Params } from '../engine/experiment';
 
 export type CompareMode = 'single' | 'split';
-export type CameraPreset = 'front' | 'side' | 'three-quarter' | 'top' | 'close-up';
+export type CameraPreset = 'front' | 'side' | 'three-quarter' | 'top' | 'close-up' | 'wide';
 
 /** Shared, mutable playback clock (read every frame without React re-renders). */
 export const labClock = { time: 0, duration: 1 };
@@ -21,7 +21,7 @@ interface LabState {
   /** Bumped to force re-sync of displayed time / camera. */
   tick: number;
   cameraNonce: number;
-  select: (id: string) => void;
+  select: (id: string, camera?: CameraPreset) => void;
   setParam: (id: string, key: string, value: Params[string]) => void;
   setParams: (id: string, values: Partial<Params>) => void;
   resetParams: (id: string, defaults: Params) => void;
@@ -41,9 +41,9 @@ export const useLab = create<LabState>((set) => ({
   camera: 'three-quarter',
   tick: 0,
   cameraNonce: 0,
-  select: (experimentId) => {
+  select: (experimentId, camera = 'three-quarter') => {
     labClock.time = 0;
-    set((s) => ({ experimentId, tick: s.tick + 1 }));
+    set((s) => ({ experimentId, tick: s.tick + 1, camera, cameraNonce: s.cameraNonce + 1 }));
   },
   setParam: (id, key, value) => set((s) => ({ params: { ...s.params, [id]: { ...s.params[id], [key]: value } } })),
   setParams: (id, values) => set((s) => ({ params: { ...s.params, [id]: { ...s.params[id], ...(values as Params) } } })),

@@ -101,7 +101,7 @@ function Transport({ duration }: { duration: number }) {
         <input type="checkbox" checked={axes} onChange={(e) => set({ axes: e.target.checked })} /> Axes
       </label>
       <select value={camera} onChange={(e) => set({ camera: e.target.value as CameraPreset, cameraNonce: useLab.getState().cameraNonce + 1 })} data-testid="camera-preset" title="Camera preset">
-        {['front', 'side', 'three-quarter', 'top', 'close-up'].map((c) => (
+        {['front', 'side', 'three-quarter', 'top', 'close-up', 'wide'].map((c) => (
           <option key={c}>{c}</option>
         ))}
       </select>
@@ -169,7 +169,7 @@ export default function GamingLabPage() {
               const available = Boolean(experimentById(p.id));
               return (
                 <li key={p.id}>
-                  <button className={`gl-nav-item ${p.id === exp.id ? 'active' : ''}`} disabled={!available} onClick={() => select(p.id)} data-testid={`concept-${p.id}`}>
+                  <button className={`gl-nav-item ${p.id === exp.id ? 'active' : ''}`} disabled={!available} onClick={() => select(p.id, experimentById(p.id)?.camera)} data-testid={`concept-${p.id}`}>
                     {p.title}
                   </button>
                 </li>

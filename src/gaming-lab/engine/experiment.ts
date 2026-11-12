@@ -52,6 +52,8 @@ export interface Experiment {
   readouts?: (ctx: EvalContext) => Record<string, string>;
   /** Draggable world-space handles bound to three numeric params (x, y, z in metres). */
   handles?: { id: string; keys: [string, string, string]; color: string; when?: (params: Params) => boolean }[];
+  /** Camera preset applied when the experiment is opened. */
+  camera?: 'front' | 'side' | 'three-quarter' | 'top' | 'close-up' | 'wide';
   /** Optional 2D chart (e.g. time-mapping curve) shown in the controls panel. */
   chart?: (params: Params, t: number) => LabChart;
   /** Whether baking/export is meaningful for this experiment. */
