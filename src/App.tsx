@@ -64,6 +64,9 @@ export function App() {
           <div className={`mode mode-${mode}`} data-testid="mode">
             {MODE_LABEL[mode]}
           </div>
+          <Link className="btn director-link" to={`/gaming-lab${search}`} data-testid="open-gaming-lab">
+            Gaming Animation Lab
+          </Link>
           <Link className="btn director-link" to={`/director${search}`} data-testid="open-director">
             AI Director Studio →
           </Link>
