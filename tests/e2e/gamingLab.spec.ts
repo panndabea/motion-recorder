@@ -35,13 +35,13 @@ test('gaming lab: controls update the model, transport, split-screen, reset, bak
   await page.goto('/gaming-lab');
   await page.getByTestId('concept-inverse-kinematics').click();
   const readouts = page.getByTestId('readouts');
-  await expect(readouts).toContainText(/reachable/i);
-  const before = await readouts.innerText();
+  // the idle clip keeps playing, so only compare the parameter-driven readouts
+  await expect(readouts).toContainText(/Reachable\s*yes/);
   await page.getByTestId('preset-Unreachable target').click();
-  await expect.poll(() => readouts.innerText()).not.toBe(before);
-  await expect(readouts).toContainText(/no/i);
+  await expect(readouts).toContainText(/Reachable\s*no/);
   await page.getByTestId('reset-params').click();
-  await expect.poll(() => readouts.innerText()).toBe(before);
+  await expect(readouts).toContainText(/Reachable\s*yes/);
+  await expect(readouts).toContainText(/Hand → target error\s*0\.\d cm/);
 
   await page.getByTestId('concept-foot-locking').click();
   await page.getByTestId('play-toggle').click(); // pause
