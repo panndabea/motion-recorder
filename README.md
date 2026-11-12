@@ -210,6 +210,13 @@ How it stays safe and reproducible (`src/director/ai/llmInterpreter.ts`, `runPro
 - `PickUp_Table` and the other library clips are not used yet. Reaching is done with IK and bending.
 - Timing phrases follow fixed patterns (numbers as digits or words up to 30, seconds/minutes). Relative words without a number ("a bit slower") use fixed factors (×1.4 / ×1.5). Retiming does not add new gestures; extra time is spread over the existing actions.
 
+## Text-to-Motion lab (experimental, branch `experiment/text-to-motion`)
+
+`/lab/text-to-motion` generates new skeletal motion from arbitrary text with ARDY Mini (browser, WebGPU) or a
+self-hosted Kimodo-SOMA-RP-v1.2 backend (`experiments/kimodo-server/`), retargets it onto the mannequin and
+exports it through the normal Motion JSON / GLB pipeline. Evaluation, numbers and licenses:
+[`docs/TEXT_TO_MOTION.md`](docs/TEXT_TO_MOTION.md).
+
 ## Tests
 
 ```bash

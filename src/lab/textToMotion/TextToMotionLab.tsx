@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { Vector3 } from 'three';
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import { Grid, OrbitControls } from '@react-three/drei';
 import { Link } from 'react-router';
 import { loadMannequin, type MannequinRig } from '../../rig/mannequinLoader';
-import { MANNEQUIN_URL } from '../../rig/rigSpec';
+import { BONES, MANNEQUIN_URL } from '../../rig/rigSpec';
 import { MotionPlayer } from '../../recording/motionPlayback';
 import type { MotionData } from '../../recording/motionFormat';
 import { serializeMotion, motionFileName } from '../../export/jsonExporter';
@@ -15,6 +17,26 @@ import { maxPoseDeltaDeg } from './poseDelta';
 import { ArdyWebGpuGenerator } from './generators/ardyWebGpu';
 import { KimodoHttpGenerator } from './generators/kimodoHttp';
 import type { MotionGenerator } from './generators/types';
+
+/** Keeps the orbit target (and camera, by the same offset) on the hips so root motion stays in view. */
+function Follow({ rig }: { rig: MannequinRig }) {
+  const controls = useThree((st) => st.controls) as OrbitControlsImpl | null;
+  const camera = useThree((st) => st.camera);
+  const hips = useMemo(() => new Vector3(), []);
+  useFrame(() => {
+    const bone = rig.bones.get(BONES.hips);
+    if (!bone || !controls) return;
+    bone.getWorldPosition(hips);
+    const dx = hips.x - controls.target.x;
+    const dz = hips.z - controls.target.z;
+    controls.target.x += dx;
+    controls.target.z += dz;
+    camera.position.x += dx;
+    camera.position.z += dz;
+    controls.update();
+  });
+  return null;
+}
 
 interface Roundtrip { json: string; glb: string; ok: boolean }
 
@@ -43,6 +65,7 @@ export default function TextToMotionLab() {
   const [report, setReport] = useState<RetargetReport | null>(null);
   const [roundtrip, setRoundtrip] = useState<Roundtrip | null>(null);
   const [time, setTime] = useState(0);
+  const [follow, setFollow] = useState(true);
   const player = useMemo(() => (rig ? new MotionPlayer(rig) : null), [rig]);
   const ardy = useRef(new ArdyWebGpuGenerator());
 
@@ -115,12 +138,13 @@ export default function TextToMotionLab() {
   return (
     <div className="t2m-lab" style={{ display: 'grid', gridTemplateColumns: '1fr 380px', height: '100vh' }}>
       <div style={{ position: 'relative' }}>
-        <Canvas shadows camera={{ position: [0, 1.3, 4.2], fov: 45 }}>
+        <Canvas shadows camera={{ position: [3.6, 1.4, 2.4], fov: 45 }}>
           <hemisphereLight intensity={0.8} />
           <directionalLight position={[3, 5, 4]} intensity={1.6} castShadow />
           <Grid infiniteGrid cellSize={0.5} sectionSize={2} fadeDistance={25} />
           {rig && <primitive object={rig.scene} />}
           {player && <Driver player={player} />}
+          {rig && follow && <Follow rig={rig} />}
           <OrbitControls target={[0, 0.9, 0]} makeDefault />
         </Canvas>
       </div>
@@ -145,6 +169,7 @@ export default function TextToMotionLab() {
               <button onClick={() => (player.playing ? player.pause() : player.play())}>{player.playing ? 'Pause' : 'Play'}</button>
               <input data-testid="t2m-scrub" type="range" min={0} max={motion.duration} step={0.01} value={time} onChange={(e) => { player.pause(); player.seek(Number(e.target.value)); }} style={{ flex: 1 }} />
               <span>{time.toFixed(2)} / {motion.duration.toFixed(2)} s</span>
+              <label><input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> follow</label>
             </div>
             <div className="row">
               <button onClick={() => download(motionFileName(motion), serializeMotion(motion), 'application/json')}>Motion JSON</button>
