@@ -51,7 +51,18 @@ export interface Experiment {
   /** Readouts shown under the controls (error distances, scores …). */
   readouts?: (ctx: EvalContext) => Record<string, string>;
   /** Draggable world-space handles bound to three numeric params (x, y, z in metres). */
-  handles?: { id: string; keys: [string, string, string]; color: string }[];
+  handles?: { id: string; keys: [string, string, string]; color: string; when?: (params: Params) => boolean }[];
+  /** Optional 2D chart (e.g. time-mapping curve) shown in the controls panel. */
+  chart?: (params: Params, t: number) => LabChart;
   /** Whether baking/export is meaningful for this experiment. */
   bakeable: boolean;
+}
+
+export interface LabChart {
+  title: string;
+  xLabel: string;
+  yLabel: string;
+  series: { name: string; color: string; points: [number, number][]; dashed?: boolean }[];
+  markers?: { x: number; y: number; color: string }[];
+  cursorX?: number;
 }

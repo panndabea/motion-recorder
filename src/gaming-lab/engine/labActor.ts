@@ -74,6 +74,13 @@ export class LabActor {
     return this.pose.rotations.get(bone)!;
   }
 
+  private restCache: Map<string, ModelTransform> | null = null;
+
+  /** Model-space transforms of the bind/rest pose (cached). */
+  restFk(): Map<string, ModelTransform> {
+    return (this.restCache ??= forwardKinematics(this.def));
+  }
+
   /** Model-space transforms of the current pose. */
   fk(): Map<string, ModelTransform> {
     return forwardKinematics(this.def, this.pose);

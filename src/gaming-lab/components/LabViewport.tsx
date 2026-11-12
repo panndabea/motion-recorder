@@ -9,10 +9,10 @@ import type { LabActor } from '../engine/labActor';
 import { labClock, useLab, type CameraPreset } from '../state/gamingLabStore';
 
 const PRESETS: Record<CameraPreset, { pos: [number, number, number]; target: [number, number, number] }> = {
-  front: { pos: [0, 1.3, 3.6], target: [0, 0.95, 0] },
-  side: { pos: [3.6, 1.3, 0.2], target: [0, 0.95, 0.2] },
-  'three-quarter': { pos: [-2.4, 1.8, 3.0], target: [0, 0.9, 0.3] },
-  top: { pos: [0, 5.5, 0.6], target: [0, 0, 0.5] },
+  front: { pos: [0, 1.25, 2.9], target: [0, 0.95, 0.2] },
+  side: { pos: [2.9, 1.25, 0.3], target: [0, 0.95, 0.3] },
+  'three-quarter': { pos: [-1.7, 1.6, 2.3], target: [0, 0.95, 0.25] },
+  top: { pos: [0, 5, 0.8], target: [0, 0, 0.6] },
   'close-up': { pos: [-1.0, 1.6, 1.6], target: [-0.1, 1.2, 0.2] },
 };
 
@@ -141,7 +141,7 @@ export function ActorView({ actor, exp, params, enabled, label, primary, testId 
   const state = useMemo<ExperimentState>(() => ({}), []);
   useEffect(() => {
     const props = exp.createProps?.(actor) ?? [];
-    propsGroup.add(...props);
+    if (props.length) propsGroup.add(...props);
     return () => {
       for (const p of props) {
         propsGroup.remove(p);
@@ -169,7 +169,7 @@ export function ActorView({ actor, exp, params, enabled, label, primary, testId 
         <primitive object={propsGroup} />
         <primitive object={debugGroup} />
         <Driver actor={actor} exp={exp} params={params} enabled={enabled} state={state} debugGroup={debugGroup} props={propsGroup} primary={primary} />
-        {enabled && exp.handles?.map((h) => <Handle key={h.id} exp={exp} handle={h} params={params} controls={controls} />)}
+        {enabled && exp.handles?.filter((h) => !h.when || h.when(params)).map((h) => <Handle key={h.id} exp={exp} handle={h} params={params} controls={controls} />)}
         <OrbitControls ref={controls} makeDefault target={p.target} />
         <CameraSync controls={controls} />
       </Canvas>

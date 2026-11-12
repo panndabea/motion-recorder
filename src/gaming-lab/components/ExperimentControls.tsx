@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { Experiment, Params } from '../engine/experiment';
+import type { Experiment, LabChart, Params } from '../engine/experiment';
+import { labClock } from '../state/gamingLabStore';
 import { useLab } from '../state/gamingLabStore';
 import { liveReadouts } from './LabViewport';
 
@@ -8,10 +9,14 @@ export function ExperimentControls({ exp, params, onBake }: { exp: Experiment; p
   const setParams = useLab((s) => s.setParams);
   const resetParams = useLab((s) => s.resetParams);
   const [readouts, setReadouts] = useState<Record<string, string>>({});
+  const [chart, setChart] = useState<LabChart | null>(null);
   useEffect(() => {
-    const id = setInterval(() => setReadouts({ ...liveReadouts.values }), 200);
+    const id = setInterval(() => {
+      setReadouts({ ...liveReadouts.values });
+      setChart(exp.chart ? exp.chart(params, labClock.time) : null);
+    }, 200);
     return () => clearInterval(id);
-  }, []);
+  }, [exp, params]);
   return (
     <div className="gl-controls" data-testid="experiment-controls">
       <div className="gl-row gl-presets">
@@ -61,6 +66,7 @@ export function ExperimentControls({ exp, params, onBake }: { exp: Experiment; p
           </div>
         ))}
       </div>
+      {chart && <ChartView chart={chart} />}
       {exp.bakeable && (
         <div className="gl-bake">
           <h4>Bake current animation</h4>
@@ -73,5 +79,38 @@ export function ExperimentControls({ exp, params, onBake }: { exp: Experiment; p
         </div>
       )}
     </div>
+  );
+}
+
+export function ChartView({ chart }: { chart: LabChart }) {
+  const W = 270;
+  const H = 170;
+  const pad = 26;
+  const xs = chart.series.flatMap((s) => s.points.map((p) => p[0]));
+  const ys = chart.series.flatMap((s) => s.points.map((p) => p[1]));
+  const x0 = Math.min(0, ...xs), x1 = Math.max(1e-3, ...xs);
+  const y0 = Math.min(0, ...ys), y1 = Math.max(1e-3, ...ys);
+  const sx = (x: number) => pad + ((x - x0) / (x1 - x0)) * (W - pad - 6);
+  const sy = (y: number) => H - pad - ((y - y0) / (y1 - y0)) * (H - pad - 6);
+  return (
+    <figure className="gl-chart" data-testid="lab-chart">
+      <figcaption>{chart.title}</figcaption>
+      <svg width={W} height={H}>
+        <line x1={pad} y1={H - pad} x2={W - 4} y2={H - pad} stroke="#3a4050" />
+        <line x1={pad} y1={4} x2={pad} y2={H - pad} stroke="#3a4050" />
+        <text x={W - 6} y={H - 8} textAnchor="end" fill="#8a93a6" fontSize="10">{chart.xLabel} (0–{x1.toFixed(1)})</text>
+        <text x={4} y={12} fill="#8a93a6" fontSize="10">{chart.yLabel} (max {y1.toFixed(2)})</text>
+        {chart.series.map((s) => (
+          <polyline key={s.name} fill="none" stroke={s.color} strokeWidth={1.6} strokeDasharray={s.dashed ? '4 3' : undefined} points={s.points.map((p) => `${sx(p[0])},${sy(p[1])}`).join(' ')} />
+        ))}
+        {chart.markers?.map((m, i) => <circle key={i} cx={sx(m.x)} cy={sy(m.y)} r={2.4} fill={m.color} />)}
+        {chart.cursorX !== undefined && <line x1={sx(chart.cursorX)} x2={sx(chart.cursorX)} y1={4} y2={H - pad} stroke="#ff9f1c" />}
+      </svg>
+      <div className="gl-legend">
+        {chart.series.map((s) => (
+          <span key={s.name} style={{ color: s.color }}>■ {s.name}</span>
+        ))}
+      </div>
+    </figure>
   );
 }

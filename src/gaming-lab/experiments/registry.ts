@@ -1,8 +1,10 @@
 import type { Experiment } from '../engine/experiment';
+import { animationLayers } from './animationLayers';
+import { gazeController } from './gazeController';
 import { inverseKinematics } from './inverseKinematics';
 
 /** Order shown in the concept explorer. */
-export const EXPERIMENTS: Experiment[] = [inverseKinematics];
+export const EXPERIMENTS: Experiment[] = [inverseKinematics, animationLayers, gazeController];
 
 export const PLANNED: { id: string; title: string }[] = [
   { id: 'inverse-kinematics', title: 'Inverse Kinematics' },
