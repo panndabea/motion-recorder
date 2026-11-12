@@ -3,9 +3,11 @@ import { sendPrompt, useDirector } from '../state/directorStore';
 
 const EXAMPLES = [
   'Walk to the table, pick up the glass, look around nervously and put it back on the table.',
+  'Take at least 8 seconds.',
   'Do it more slowly.',
+  'Make it twice as slow.',
+  'Pause for 2 seconds before releasing the glass.',
   'Look around before putting down the glass.',
-  'Pause before releasing the glass.',
   'Make the walk more exaggerated.',
   'Look to the left.',
 ];
@@ -36,7 +38,7 @@ export function DirectorChat() {
           </div>
         )}
         {chat.map((c) => (
-          <div key={c.id} className={`ds-msg ${c.role} ${c.ok === false ? 'failed' : ''}`} data-testid={`chat-${c.role}`}>
+          <div key={c.id} className={`ds-msg ${c.role} ${c.clarify ? 'clarify' : c.ok === false ? 'failed' : ''}`} data-testid={`chat-${c.role}`}>
             {c.text}
           </div>
         ))}

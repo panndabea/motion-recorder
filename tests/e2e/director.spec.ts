@@ -123,3 +123,26 @@ test('unsupported instructions change nothing and are reported', async ({ page }
   // Placing a glass that is not held: the planner inserts walk/reach/grip first.
   expect((await state(page)).actions.map((a) => a.type)).toEqual(['walk_to', 'reach', 'grip', 'place', 'release']);
 });
+
+test('conversational timing edits retime the action and are undoable and persisted', async ({ page }) => {
+  await page.goto('/director?source=synthetic');
+  await expect(page.getByTestId('director-stage')).toBeVisible();
+  await direct(page, 'Walk to the table.');
+  const short = (await state(page)).duration;
+  expect(short).toBeLessThan(5);
+  await direct(page, 'Take at least 8 seconds to complete the movement.');
+  await expect(page.getByTestId('chat-director').last()).not.toContainText(/not supported/i);
+  const long = await state(page);
+  expect(long.duration).toBeGreaterThanOrEqual(7.99);
+  expect(long.actions.map((a) => a.type)).toEqual(['walk_to']);
+  await direct(page, 'Take at least 8 seconds.');
+  await expect(page.getByTestId('chat-director').last()).toContainText('No change');
+  expect((await state(page)).duration).toBeCloseTo(long.duration, 3);
+  await page.getByTestId('undo').click();
+  await expect.poll(async () => (await state(page)).duration).toBeCloseTo(short, 3);
+  await page.getByTestId('redo').click();
+  await expect.poll(async () => (await state(page)).duration).toBeCloseTo(long.duration, 3);
+  await page.waitForTimeout(800); // autosave debounce
+  await page.reload();
+  await expect.poll(async () => page.evaluate(() => window.__director?.store.getState().perf?.duration ?? 0), { timeout: 15000 }).toBeCloseTo(long.duration, 3);
+});

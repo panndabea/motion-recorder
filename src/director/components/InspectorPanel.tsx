@@ -25,7 +25,6 @@ function Num({ label, value, step = 0.05, min, max, onChange, testId }: { label:
 
 function ActionInspector({ a }: { a: DirectorAction }) {
   const time = useDirector((s) => s.perf?.actionTimes.get(a.id));
-  const timed = a.type === 'pause' || a.type === 'look_around' || a.type === 'look_at' || a.type === 'idle' || a.type === 'bend';
   return (
     <div className="ds-inspector" data-testid="action-inspector">
       <div className="ds-kv">
@@ -40,7 +39,7 @@ function ActionInspector({ a }: { a: DirectorAction }) {
         </div>
       )}
       <Num label="Speed" value={a.speed} step={0.1} min={0.2} max={3} onChange={(v) => updateAction(a.id, { speed: Math.min(3, Math.max(0.2, v)) })} testId="action-speed" />
-      {timed && <Num label="Duration (s)" value={a.duration ?? time?.end ?? 1 - (time?.start ?? 0)} step={0.1} min={0.1} max={20} onChange={(v) => updateAction(a.id, { duration: Math.min(20, Math.max(0.1, v)) })} testId="action-duration" />}
+      {<Num label="Duration (s)" value={+(a.duration ?? (time ? time.end - time.start : 1)).toFixed(2)} step={0.1} min={0.1} max={20} onChange={(v) => updateAction(a.id, { duration: Math.min(20, Math.max(0.1, v)) })} testId="action-duration" />}
       {(a.type === 'walk_to' || a.type === 'bend') && <Num label="Bend (°)" value={a.bend ?? (a.type === 'bend' ? 35 : 0)} step={5} min={-30} max={70} onChange={(v) => updateAction(a.id, { bend: Math.min(70, Math.max(-30, v)) })} />}
       {(a.type === 'walk_to' || a.type.startsWith('look')) && <Num label="Amplitude" value={a.amplitude ?? 1} step={0.1} min={0} max={2.5} onChange={(v) => updateAction(a.id, { amplitude: Math.min(2.5, Math.max(0, v)) })} />}
       <label className="ds-field">

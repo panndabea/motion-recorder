@@ -6,13 +6,13 @@ import { validateMotion, type MotionData } from '../../recording/motionFormat';
 import { exportMotionGlb } from '../../export/glbExporter';
 import { importMotionGlb } from '../../import/glbImporter';
 import { saveRecording } from '../../storage/recordingStore';
-import { parseDirection } from '../ai/commandParser';
-import { validateCommands, type DirectorAction, type DirectorCommand } from '../ai/commandSchema';
-import { applyCommand, resolveDependencies } from '../planning/actionPlanner';
+import { runPrompt } from '../ai/directorSession';
+import type { DirectorAction } from '../ai/commandSchema';
+import { resolveDependencies } from '../planning/actionPlanner';
 import { ComposerContext, composePerformance, type Performance } from '../animation/motionComposer';
 import { bakeActorMotion, bakeGlass } from '../animation/animationBaker';
 import { exportSceneGlb, verifySceneGlb } from '../export/directorExporter';
-import { newProject, parseProjectText, serializeProject, PROJECT_EXTENSION, type ChatEntry, type DirectorProject } from '../persistence/directorProject';
+import { newProject, parseProjectText, serializeProject, PROJECT_EXTENSION, type DirectorProject } from '../persistence/directorProject';
 import { UndoHistory } from '../timeline/undoRedo';
 import { isOverTable, requireObject, tableFrame, type SceneObject } from '../scene/sceneModel';
 
@@ -131,51 +131,16 @@ export interface PromptResult {
   reply: string;
 }
 
-/** Interprets a prompt, validates the commands and applies them. Unknown phrasing changes nothing. */
+/** Interprets a prompt (see `runPrompt`) and commits the result as one undoable step. */
 export function sendPrompt(text: string): PromptResult {
   const s = get();
   const project = s.project;
-  const trimmed = text.trim();
-  if (!trimmed) return { ok: false, reply: '' };
-  const userEntry: ChatEntry = { id: chatId(), role: 'user', text: trimmed };
-  const parsed = parseDirection(trimmed, { hasSequence: project.actions.length > 0, existingTypes: project.actions.map((a) => a.type) });
-  let reply: string;
-  let ok = false;
-  let actions = project.actions;
-  const ids = idFactory(project);
-  const applied: DirectorCommand[] = [];
-  if (parsed.commands.length === 0) {
-    reply = parsed.interpretation.length ? parsed.interpretation.join(' ') : `I don't know how to perform "${trimmed}".`;
-    ok = parsed.unsupported.length === 0 && parsed.interpretation.length > 0;
-  } else {
-    const valid = validateCommands(parsed.commands, { objectIds: project.scene.objects.map((o) => o.id) });
-    if (!valid.ok) reply = `Rejected: ${valid.errors.join(' ')}`;
-    else {
-      const notes: string[] = [];
-      let error: string | null = null;
-      for (const cmd of valid.commands) {
-        const r = applyCommand(actions, cmd, project.scene, ids.next, userEntry.id);
-        if (!r.ok) {
-          error = r.errors.join(' ');
-          break;
-        }
-        actions = r.actions;
-        notes.push(...r.notes);
-        applied.push(cmd);
-      }
-      if (error) reply = `Not applied: ${error}`;
-      else {
-        ok = true;
-        reply = [...parsed.interpretation, ...notes].join(' ');
-        if (parsed.unsupported.length) reply += ` Ignored (not supported): "${parsed.unsupported.join('", "')}".`;
-      }
-    }
-  }
-  const dirEntry: ChatEntry = { id: chatId(), role: 'director', text: reply, ok, commands: applied.length ? applied : undefined };
-  const next: DirectorProject = { ...project, actions: ok && applied.length ? actions : project.actions, nextId: ids.value(), chat: [...project.chat, userEntry, dirEntry] };
-  commit(next, { undoable: applied.length > 0 });
-  if (ok && applied.length) set({ time: 0, playing: true, selectedAction: null });
-  return { ok, reply };
+  if (!text.trim() || !ctx) return { ok: false, reply: '' };
+  const r = runPrompt(ctx, project, text, s.selectedAction, chatId);
+  const next: DirectorProject = { ...project, actions: r.actions, nextId: r.nextId, chat: [...project.chat, ...r.entries] };
+  commit(next, { undoable: r.changed });
+  if (r.changed) set((st) => ({ time: 0, playing: true, selectedAction: st.selectedAction && r.actions.some((a) => a.id === st.selectedAction) ? st.selectedAction : null }));
+  return { ok: r.ok, reply: r.reply };
 }
 
 export function undo() {

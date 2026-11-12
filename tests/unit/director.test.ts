@@ -104,9 +104,9 @@ describe('rule-based parser', () => {
     expect(op('Do it more slowly.')).toMatchObject({ operation: 'modify_actions', changes: { speedFactor: 0.7 } });
     expect(op('Make him more cautious.')).toMatchObject({ operation: 'modify_actions', changes: { style: 'cautious' } });
     expect(op('Look around before putting down the glass.')).toMatchObject({ operation: 'insert_actions', position: 'before', anchor: { type: 'place' } });
-    expect(op('Pause before releasing the glass.')).toMatchObject({ operation: 'insert_actions', anchor: { type: 'release' } });
+    expect(op('Pause before releasing the glass.')).toMatchObject({ operation: 'insert_pause', anchor: { type: 'release' } });
     expect(op('Move the hesitation to the end.')).toMatchObject({ operation: 'move_actions', to: 'end' });
-    expect(op('Make the walk more exaggerated.')).toMatchObject({ operation: 'modify_actions', match: { type: 'walk_to' } });
+    expect(op('Make the walk more exaggerated.')).toMatchObject({ operation: 'modify_style', match: { type: 'walk_to' } });
     expect(parseDirection('Keep the first part unchanged.', existing).commands).toEqual([]);
   });
   it('reports unsupported instructions instead of inventing motion', () => {

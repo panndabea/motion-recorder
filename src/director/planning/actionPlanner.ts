@@ -1,5 +1,9 @@
-import type { ActionMatch, ActionSpec, ActionType, DirectorAction, DirectorCommand, Hand } from '../ai/commandSchema';
+import type { ActionChanges, ActionMatch, ActionSpec, ActionType, DirectorAction, DirectorCommand, Hand } from '../ai/commandSchema';
 import { LIMITS } from '../ai/commandSchema';
+import { retime, type Measure } from '../timeline/retiming';
+
+/** Actions whose duration is their content (not derived from speed). */
+const CONTENT_TYPES: ActionType[] = ['pause', 'idle', 'look_around', 'look_at', 'bend'];
 import { forwardXZ, isOnTable, rad, requireObject, wrapAngle, yawTowards, type DirectorScene, type Vec3 } from '../scene/sceneModel';
 import { glassApproach, inReach, placementPoint, tableApproach, type Stand } from './sceneConstraints';
 
@@ -262,13 +266,26 @@ export interface ApplyResult {
   changed: string[];
 }
 
+export interface ApplyEnv {
+  /** Needed for timing operations: measures each action's duration in a candidate sequence. */
+  measure?: Measure;
+}
+
 function describeMatch(m: ActionMatch): string {
   const t = m.type === undefined ? 'action' : Array.isArray(m.type) ? m.type.join('/') : m.type;
   return m.target ? `${t} (${m.target})` : t;
 }
 
 /** Applies one validated command to the action list without touching unrelated actions. */
-export function applyCommand(actions: DirectorAction[], cmd: DirectorCommand, scene: DirectorScene, nextId: IdFactory, origin?: string): ApplyResult {
+export function applyCommand(actions: DirectorAction[], cmd: DirectorCommand, scene: DirectorScene, nextId: IdFactory, origin?: string, env: ApplyEnv = {}): ApplyResult {
+  // Convenience operations are expressed through the core ones.
+  if (cmd.operation === 'insert_pause') return applyCommand(actions, { operation: 'insert_actions', position: cmd.position, anchor: cmd.anchor, actions: [{ type: 'pause', duration: cmd.seconds }] }, scene, nextId, origin, env);
+  if (cmd.operation === 'modify_style') {
+    const changes: ActionChanges = {};
+    if (cmd.style !== undefined) changes.style = cmd.style;
+    if (cmd.amplitude !== undefined) changes.amplitude = cmd.amplitude;
+    return applyCommand(actions, { operation: 'modify_actions', match: cmd.match, changes }, scene, nextId, origin, env);
+  }
   const make = (specs: ActionSpec[]) => specs.map((sp) => ({ ...sp, speed: sp.speed ?? 1, id: nextId(), origin }) as DirectorAction);
   let next: DirectorAction[];
   let changed: string[] = [];
@@ -300,8 +317,16 @@ export function applyCommand(actions: DirectorAction[], cmd: DirectorCommand, sc
       next = actions.map((a, i) => {
         if (!idx.includes(i)) return a;
         const b: DirectorAction = { ...a };
-        if (c.speed !== undefined) b.speed = c.speed;
-        if (c.speedFactor !== undefined) b.speed = Math.min(LIMITS.maxSpeed, Math.max(LIMITS.minSpeed, b.speed * c.speedFactor));
+        // An explicit duration overrides speed, so speed edits rescale it to keep the edit effective.
+        if (c.speed !== undefined) {
+          if (b.duration !== undefined && !CONTENT_TYPES.includes(b.type)) b.duration = Math.min(LIMITS.maxDuration, Math.max(0.15, (b.duration * b.speed) / c.speed));
+          b.speed = c.speed;
+        }
+        if (c.speedFactor !== undefined) {
+          const sp = Math.min(LIMITS.maxSpeed, Math.max(LIMITS.minSpeed, b.speed * c.speedFactor));
+          if (b.duration !== undefined && !CONTENT_TYPES.includes(b.type)) b.duration = Math.min(LIMITS.maxDuration, Math.max(0.15, b.duration / c.speedFactor));
+          b.speed = sp;
+        }
         if (c.style !== undefined) b.style = c.style;
         if (c.amplitude !== undefined) b.amplitude = c.amplitude;
         if (c.bend !== undefined) b.bend = c.bend;
@@ -330,6 +355,17 @@ export function applyCommand(actions: DirectorAction[], cmd: DirectorCommand, sc
       next = [...rest.slice(0, pos), ...moving, ...rest.slice(pos)];
       changed = moving.map((a) => a.id);
       break;
+    }
+    case 'set_duration':
+    case 'set_min_duration':
+    case 'set_max_duration':
+    case 'scale_duration': {
+      if (!env.measure) return fail('Timing edits need the motion composer.');
+      const idx = matchActions(actions, cmd.match);
+      if (idx.length === 0) return fail(`There is no ${describeMatch(cmd.match)} in the current sequence to retime.`);
+      const r = retime(actions, { operation: cmd.operation, ids: idx.map((i) => actions[i].id), seconds: 'seconds' in cmd ? cmd.seconds : undefined, factor: 'factor' in cmd ? cmd.factor : undefined }, env.measure);
+      if (!r.ok) return { ok: false, actions, notes: [], errors: r.errors, changed: [] };
+      return { ok: true, actions: r.actions, notes: r.notes, errors: [], changed: r.changed };
     }
     case 'delete_actions': {
       const idx = matchActions(actions, cmd.match);

@@ -160,8 +160,10 @@ A second workspace in the same app. Open it with **AI Director Studio →** in t
   - *"Look around before putting down the glass."*
   - *"Pause before releasing the glass."* / *"Move the hesitation to the end."*
   - *"Make the walk more exaggerated."*
+  - Timing: *"Take at least 8 seconds."*, *"Make the entire movement last 12 seconds."*, *"Complete the action in exactly 5 seconds."*, *"Finish the walk in at most 3 seconds."*, *"Actually, make it twice as slow."*, *"Slow down the last part."*, *"Spend more time looking around."*, *"Pause for 2 seconds before releasing the glass."*, *"Look around for 2 seconds before placing it."*, *"Make the walking faster but the placing slower."*
   - Simple German also works, e.g. *"Geh zum Tisch und nimm das Glas."*
 - **Timeline:** lanes for Actor Root, Body Motion, Head/Gaze, Right/Left Arm, Object Interaction, Glass Transform and Events (attach/release). You can play, pause, loop, scrub, and zoom. Click a clip to inspect it and edit its speed, duration, style, bend or amplitude; move it earlier or later, delete it, or insert a pause after it.
+- **Conversational timing:** "at least" only extends what is too short (a 10 s take stays 10 s), "at most" only shortens, "exactly"/"last N seconds" sets the duration, "twice as slow" scales it. "It", "the movement" and "the action" mean the selected clip, otherwise what the previous instruction created or changed; "the whole sequence" and "the first/last part" mean what they say. If that is still ambiguous the Director asks which part you mean, and a short answer ("the walk") completes the original instruction. A request that changes nothing says "No change" and why; an impossible one (e.g. the whole scene in 1 s) is rejected with the minimum it needs.
 - **Undo/Redo** covers prompts, timeline edits and object moves.
 - **Projects:** the current project is autosaved in IndexedDB (`director-studio` database, separate from recordings). **Save** downloads a versioned `*.director.json`; **Open** loads one after validation; **New** starts an empty scene. A project stores the scene, the structured action list (with ids), the chat with the applied structured commands, the camera and settings. Reopening a project recomposes the performance from the stored actions and never re-interprets the chat text.
 - **Export:**
@@ -171,14 +173,15 @@ A second workspace in the same app. Open it with **AI Director Studio →** in t
   - **Send to MotionRecorder:** saves the baked take into the recorder's library and switches workspaces.
 
 ### How it works
-1. **Interpret:** `src/director/ai/commandParser.ts` is a deterministic, rule-based interpreter that turns text into structured commands (`create_sequence`, `append_actions`, `insert_actions`, `modify_actions`, `move_actions`, `delete_actions`). It is **not** a language model. Phrases it cannot map are reported as unsupported, and no motion is invented for them.
+1. **Interpret:** `src/director/ai/commandParser.ts` is a deterministic, rule-based interpreter that turns text into structured commands (`create_sequence`, `append_actions`, `insert_actions`, `modify_actions`, `move_actions`, `delete_actions`, and the timing/style edits `set_duration`, `set_min_duration`, `set_max_duration`, `scale_duration`, `insert_pause`, `modify_style`). Contextual references (`scope: context | sequence | first_part | last_part`) are resolved to concrete action ids by `ai/editContext.ts` before anything is applied; `ai/directorSession.ts` runs the whole turn. It is **not** a language model. Phrases it cannot map are reported as unsupported, and no motion is invented for them.
 2. **Validate:** `commandSchema.ts` checks every command: action types (`walk_to`, `turn`, `reach`, `grip`, `lift`, `place`, `release`, `look_at`, `look_around`, `pause`, `bend`, `idle`), object references, value ranges and operations. Any future model-based interpreter has to emit the same JSON and pass the same validator.
 3. **Plan:** `planning/actionPlanner.ts` simulates the glass state machine (on table → reached → held → placed → released) and where the actor stands. It inserts missing prerequisites, marked `auto` (walk to the glass before reaching, reach before grip, release after place), and rejects transitions it cannot fix, such as releasing a glass that is not held. `sceneConstraints.ts` computes approach points from the table bounds, the reach envelope and the placement spots.
 4. **Compose:** `animation/motionComposer.ts` builds the pose as a pure function of time `t`. Scrubbing and seeking are therefore exact, and playback is reproducible:
    - **Base motion:** the library clips `Idle_Loop` and `Walk_Loop`. The walk phase is driven by the distance travelled, so the feet match the root speed. Horizontal root motion goes on the `root` bone.
    - **Procedural layers:** spine bend, head/neck gaze (look-at), and analytic two-bone IK for the arms using the rig's own bone lengths. The upper-body bend needed to reach a target is solved automatically.
    - **Glass:** attached to the palm at the end of `grip` with the relative offset kept. It follows the hand while held, settles exactly on the placement point, and stays there after `release`.
-5. **Bake:** `animation/animationBaker.ts` samples the performance at 30 fps into MotionRecorder tracks, plus a separate glass track for the scene export.
+5. **Retime:** `timeline/retiming.ts` turns a duration request into explicit `duration` values on the affected actions (stored in the project, shown on the timeline, undoable, baked into exports). For a group it finds one common stretch factor, clamped per action to plausible limits (e.g. a grip can be at most 4× slower; pauses absorb what is left). A longer walk first slows the gait down to about 0.38 m/s with shorter strides, so the cycle stays tied to the distance travelled; any remaining time becomes an anticipation phase before setting off (idle breathing, gaze towards the destination), not a frozen pose. Attach/release events and the glass follow automatically because they are derived from the composed action times.
+6. **Bake:** `animation/animationBaker.ts` samples the performance at 30 fps into MotionRecorder tracks, plus a separate glass track for the scene export.
 
 ### Limitations (Director)
 - The interpreter is rule-based. It understands the documented vocabulary and close variants, not arbitrary language. A browser-local LLM (e.g. WebLLM on WebGPU) could be added behind the same validator, but it is **not included**: it could not be verified on this development VM, which has no GPU.
@@ -186,6 +189,7 @@ A second workspace in the same app. Open it with **AI Director Studio →** in t
 - There is no physics or collision avoidance. Walks are straight lines, and the planner only picks the table side to approach.
 - Fingers do not curl around the glass, and turning in place slides the feet slightly.
 - `PickUp_Table` and the other library clips are not used yet. Reaching is done with IK and bending.
+- Timing phrases follow fixed patterns (numbers as digits or words up to 30, seconds/minutes). Relative words without a number ("a bit slower") use fixed factors (×1.4 / ×1.5). Retiming does not add new gestures; extra time is spread over the existing actions.
 
 ## Tests
 

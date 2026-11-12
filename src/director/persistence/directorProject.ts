@@ -14,6 +14,10 @@ export interface ChatEntry {
   ok?: boolean;
   /** Structured commands that were applied (so reopening never needs to re-interpret text). */
   commands?: unknown[];
+  /** Action ids the instruction created or changed (context for "it", "the movement"). */
+  affected?: string[];
+  /** Set when the director asked a clarification question; the next short answer completes this prompt. */
+  clarify?: { prompt: string };
 }
 
 export interface DirectorProject {

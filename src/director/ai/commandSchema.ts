@@ -63,7 +63,16 @@ export interface ActionMatch {
   occurrence?: 'first' | 'last' | 'all';
   /** Restrict to these action ids. */
   ids?: string[];
+  /**
+   * Contextual reference, resolved to `ids` before the command is applied (see editContext.ts):
+   * `context` = the selected action, else the actions the previous instruction created or changed
+   * ("it", "the movement"); `sequence` = the whole performance; `first_part`/`last_part` = first/last third.
+   */
+  scope?: EditScope;
 }
+
+export const SCOPES = ['context', 'sequence', 'first_part', 'last_part'] as const;
+export type EditScope = (typeof SCOPES)[number];
 
 export interface ActionChanges {
   speedFactor?: number;
@@ -82,11 +91,29 @@ export type DirectorCommand =
   | { operation: 'insert_actions'; position: 'before' | 'after'; anchor: ActionMatch; actions: ActionSpec[] }
   | { operation: 'modify_actions'; match: ActionMatch; changes: ActionChanges }
   | { operation: 'move_actions'; match: ActionMatch; to: 'start' | 'end' | { position: 'before' | 'after'; anchor: ActionMatch } }
-  | { operation: 'delete_actions'; match: ActionMatch };
+  | { operation: 'delete_actions'; match: ActionMatch }
+  /** Temporal edits on the matched actions (as one group: the group's total duration is constrained). */
+  | { operation: 'set_duration' | 'set_min_duration' | 'set_max_duration'; match: ActionMatch; seconds: number }
+  | { operation: 'scale_duration'; match: ActionMatch; factor: number }
+  | { operation: 'insert_pause'; position: 'before' | 'after'; anchor: ActionMatch; seconds: number }
+  | { operation: 'modify_style'; match: ActionMatch; style?: ActionStyle; amplitude?: number };
 
-export const OPERATIONS = ['create_sequence', 'append_actions', 'insert_actions', 'modify_actions', 'move_actions', 'delete_actions'] as const;
+export type TimingOperation = 'set_duration' | 'set_min_duration' | 'set_max_duration' | 'scale_duration';
+export const TIMING_OPERATIONS: readonly TimingOperation[] = ['set_duration', 'set_min_duration', 'set_max_duration', 'scale_duration'];
 
-export const LIMITS = { maxActions: 64, minSpeed: 0.2, maxSpeed: 3, maxDuration: 20, maxBend: 70, maxAmplitude: 2.5 };
+export const OPERATIONS = [
+  'create_sequence',
+  'append_actions',
+  'insert_actions',
+  'modify_actions',
+  'move_actions',
+  'delete_actions',
+  ...TIMING_OPERATIONS,
+  'insert_pause',
+  'modify_style',
+] as const;
+
+export const LIMITS = { maxActions: 64, minSpeed: 0.2, maxSpeed: 3, maxDuration: 20, maxBend: 70, maxAmplitude: 2.5, maxSequenceDuration: 120, minFactor: 0.2, maxFactor: 6 };
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -163,6 +190,10 @@ function validateMatch(v: unknown, where: string, errors: string[]): ActionMatch
     if (!Array.isArray(v.ids) || !v.ids.every((i) => typeof i === 'string')) return errors.push(`${where}: ids must be strings.`), null;
     m.ids = v.ids as string[];
   }
+  if (v.scope !== undefined) {
+    if (!oneOf(SCOPES, v.scope)) return errors.push(`${where}: scope must be one of ${SCOPES.join(', ')}.`), null;
+    m.scope = v.scope;
+  }
   return m;
 }
 
@@ -233,9 +264,28 @@ export function validateCommands(input: unknown, ctx: ValidationContext): Comman
         if (anchor) to = { position: raw.to.position, anchor };
       } else errors.push(`${where}: "to" must be start, end or {position, anchor}.`);
       if (match && to) out.push({ operation: op, match, to });
-    } else {
+    } else if (op === 'delete_actions') {
       const match = validateMatch(raw.match, `${where} match`, errors);
       if (match) out.push({ operation: 'delete_actions', match });
+    } else if (op === 'set_duration' || op === 'set_min_duration' || op === 'set_max_duration') {
+      const match = validateMatch(raw.match ?? { scope: 'context' }, `${where} match`, errors);
+      if (!isNum(raw.seconds) || raw.seconds < 0.1 || raw.seconds > LIMITS.maxSequenceDuration) return void errors.push(`${where}: seconds must be between 0.1 and ${LIMITS.maxSequenceDuration}.`);
+      if (match) out.push({ operation: op, match, seconds: raw.seconds });
+    } else if (op === 'scale_duration') {
+      const match = validateMatch(raw.match ?? { scope: 'context' }, `${where} match`, errors);
+      if (!isNum(raw.factor) || raw.factor < LIMITS.minFactor || raw.factor > LIMITS.maxFactor) return void errors.push(`${where}: factor must be between ${LIMITS.minFactor} and ${LIMITS.maxFactor}.`);
+      if (match) out.push({ operation: op, match, factor: raw.factor });
+    } else if (op === 'insert_pause') {
+      const anchor = validateMatch(raw.anchor, `${where} anchor`, errors);
+      if (raw.position !== 'before' && raw.position !== 'after') return void errors.push(`${where}: position must be before or after.`);
+      if (!isNum(raw.seconds) || raw.seconds < 0.1 || raw.seconds > LIMITS.maxDuration) return void errors.push(`${where}: seconds must be between 0.1 and ${LIMITS.maxDuration}.`);
+      if (anchor) out.push({ operation: op, position: raw.position, anchor, seconds: raw.seconds });
+    } else {
+      const match = validateMatch(raw.match ?? { scope: 'context' }, `${where} match`, errors);
+      if (raw.style !== undefined && !oneOf(STYLES, raw.style)) return void errors.push(`${where}: unknown style "${String(raw.style)}".`);
+      if (raw.amplitude !== undefined && (!isNum(raw.amplitude) || raw.amplitude < 0 || raw.amplitude > LIMITS.maxAmplitude)) return void errors.push(`${where}: amplitude out of range.`);
+      if (raw.style === undefined && raw.amplitude === undefined) return void errors.push(`${where}: modify_style needs a style or amplitude.`);
+      if (match) out.push({ operation: 'modify_style', match, style: raw.style as ActionStyle | undefined, amplitude: raw.amplitude as number | undefined });
     }
   });
   if (errors.length || out.length === 0) return { ok: false, errors: errors.length ? errors : ['No commands.'] };

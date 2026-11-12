@@ -50,6 +50,7 @@
 .ds-msg.user { align-self: flex-end; background: #3a2a5e; }
 .ds-msg.director { align-self: flex-start; background: #201b2b; border: 1px solid var(--ds-line); }
 .ds-msg.director.failed { border-color: #6b2a3a; color: #ffc2cc; }
+.ds-msg.director.clarify { border-color: #7a5a1c; color: #ffe2a8; }
 .ds-examples { display: flex; flex-wrap: wrap; gap: 4px; }
 .ds-chip { background: #1e1929; border: 1px solid var(--ds-line); border-radius: 12px; padding: 2px 8px; font-size: 11px; cursor: pointer; text-align: left; }
 .ds-chip:hover:not(:disabled) { border-color: var(--ds-accent); }

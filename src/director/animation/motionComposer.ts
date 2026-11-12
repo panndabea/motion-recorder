@@ -255,7 +255,8 @@ export interface Segment {
   actionId: string;
   actionIndex: number;
   type: ActionType;
-  phase: 'turn' | 'walk' | 'main';
+  /** `prepare`: anticipation before a deliberately slow walk (idle motion, gaze toward the destination). */
+  phase: 'turn' | 'walk' | 'prepare' | 'main';
   start: number;
   end: number;
 }
@@ -317,6 +318,12 @@ const BASE_DURATION: Partial<Record<ActionType, number>> = {
   idle: 1.5,
 };
 const WALK_SPEED = 1.05;
+/** Slowest plausible walking speed (m/s, peak). Slower targets add an anticipation phase instead. */
+export const MIN_WALK_SPEED = 0.38;
+/** Slow walks take shorter steps: stride scales with sqrt(speed), so cadence and step length both drop. */
+const strideScaleFor = (peakSpeed: number) => Math.max(0.55, Math.min(1.2, Math.sqrt(peakSpeed / WALK_SPEED)));
+/** Peak speed of the trapezoidal walk profile used by `rootAt`. */
+const walkPeak = (len: number, T: number) => len / Math.max(1e-6, T - Math.min(0.5, T / 3));
 const TURN_SPEED = 2.4;
 const TURN_THRESHOLD = 0.3;
 
@@ -335,6 +342,11 @@ interface SegData extends Segment {
   /** Cumulative walk distance at segment start (drives the walk phase). */
   dist0: number;
   distance: number;
+  /** Gait phase (in metres of nominal stride) at segment start, and stride scaling of this segment. */
+  phase0: number;
+  strideScale: number;
+  /** Prepare segments: gaze yaw toward the walk direction. */
+  gazeYaw?: number;
   prev: Channels;
   /** Interaction target positions (world). */
   hand: Hand;
@@ -359,6 +371,27 @@ function cloneChannels(c: Channels): Channels {
 const restChannels = (): Channels => ({ bend: 0, gaze: [0, 0], arms: { right: { w: 0, target: new Vector3() }, left: { w: 0, target: new Vector3() } } });
 
 /**
+ * Retimes a walk/turn action to exactly `T` seconds. Faster: everything is compressed. Slower: turns stretch
+ * up to 2x and the walk slows down (shorter, slower steps) to MIN_WALK_SPEED; any time still missing becomes
+ * an anticipation phase before setting off (idle motion, gaze toward the destination), never a frozen pose.
+ */
+function fitLocomotion(parts: { phase: Segment['phase']; dur: number; extra: Partial<SegData> }[], T: number, len: number, from: { pos: [number, number]; yaw: number }, pathTurn: number) {
+  const total = parts.reduce((acc, p) => acc + p.dur, 0);
+  if (total <= 1e-6) return;
+  const f = T / total;
+  const walk = parts.find((p) => p.phase === 'walk');
+  const maxWalk = walk ? len / MIN_WALK_SPEED + 0.5 : 0;
+  const turnCap = walk ? 2 : 3;
+  if (f <= 1 || ((!walk || walk.dur * f <= maxWalk) && f <= turnCap)) {
+    for (const p of parts) p.dur *= f;
+    return;
+  }
+  for (const p of parts) p.dur = p.phase === 'walk' ? Math.min(maxWalk, p.dur * f) : p.dur * Math.min(f, turnCap);
+  const rest = T - parts.reduce((acc, p) => acc + p.dur, 0);
+  if (rest > 1e-6) parts.unshift({ phase: 'prepare', dur: rest, extra: { fromPos: [...from.pos], toPos: [...from.pos], fromYaw: from.yaw, toYaw: from.yaw, distance: 0, gazeYaw: Math.max(-1.2, Math.min(1.2, pathTurn)) } });
+}
+
+/**
  * Deterministic motion composer: turns a validated action list into a performance whose pose is a pure
  * function of time. Library clips (idle, walk) provide the base motion; procedural layers add root motion,
  * spine bend, gaze, two-bone arm IK and the glass attachment.
@@ -371,6 +404,7 @@ export function composePerformance(ctx: ComposerContext, scene: DirectorScene, a
   const segs: SegData[] = [];
   let time = 0;
   let dist = 0;
+  let gait = 0;
   const prevPlaceHand: { v?: Vector3; bend?: number } = {};
 
   const carry = (pos: [number, number], yaw: number, hand: Hand) =>
@@ -391,6 +425,8 @@ export function composePerformance(ctx: ComposerContext, scene: DirectorScene, a
       toYaw: step.before.stand.yaw,
       dist0: dist,
       distance: 0,
+      phase0: gait,
+      strideScale: 1,
       prev: restChannels(),
       hand: step.action.hand ?? step.before.hand,
       ...extra,
@@ -398,6 +434,7 @@ export function composePerformance(ctx: ComposerContext, scene: DirectorScene, a
     segs.push(s);
     time = s.end;
     dist += s.distance;
+    gait += s.distance / s.strideScale;
     return s;
   };
 
@@ -413,21 +450,30 @@ export function composePerformance(ctx: ComposerContext, scene: DirectorScene, a
       const dx = to.pos[0] - from.pos[0];
       const dz = to.pos[1] - from.pos[1];
       const len = Math.hypot(dx, dz);
+      type Part = { phase: SegData['phase']; dur: number; extra: Partial<SegData> };
+      const parts: Part[] = [];
       let yaw = from.yaw;
+      let pathTurn = 0;
       if (len > 0.05) {
         const pathYaw = Math.atan2(dx, dz);
         const d = wrapAngle(pathYaw - yaw);
+        pathTurn = d;
         if (Math.abs(d) > TURN_THRESHOLD) {
-          push(step, i, 'turn', (Math.abs(d) / TURN_SPEED) * k + 0.15, { fromPos: [...from.pos], toPos: [...from.pos], fromYaw: yaw, toYaw: yaw + d, distance: Math.abs(d) * 0.22 });
-          yaw += d;
-        } else yaw += d; // small corrections are absorbed into the walk
-        const v = WALK_SPEED * Math.max(0.05, a.speed) / STYLE_TIME[a.style ?? 'normal'];
+          parts.push({ phase: 'turn', dur: (Math.abs(d) / TURN_SPEED) * k + 0.15, extra: { fromPos: [...from.pos], toPos: [...from.pos], fromYaw: yaw, toYaw: yaw + d, distance: Math.abs(d) * 0.22 } });
+        }
+        yaw += d; // small corrections are absorbed into the walk
+        const v = (WALK_SPEED * Math.max(0.05, a.speed)) / STYLE_TIME[a.style ?? 'normal'];
         const r = Math.min(0.5, len / v / 2);
-        push(step, i, 'walk', len / v + r, { fromPos: [...from.pos], toPos: [...to.pos], fromYaw: wrapAngle(yaw), toYaw: wrapAngle(yaw), distance: len });
+        parts.push({ phase: 'walk', dur: len / v + r, extra: { fromPos: [...from.pos], toPos: [...to.pos], fromYaw: wrapAngle(yaw), toYaw: wrapAngle(yaw), distance: len } });
       }
       const d2 = wrapAngle(to.yaw - yaw);
-      if (Math.abs(d2) > 0.02 || segs.length === 0 || segs[segs.length - 1].actionId !== a.id) {
-        push(step, i, 'turn', Math.max(0.35, (Math.abs(d2) / TURN_SPEED) * k + 0.15), { fromPos: [...to.pos], toPos: [...to.pos], fromYaw: wrapAngle(yaw), toYaw: wrapAngle(yaw) + d2, distance: Math.abs(d2) * 0.22 });
+      if (Math.abs(d2) > 0.02 || parts.length === 0) {
+        parts.push({ phase: 'turn', dur: Math.max(0.35, (Math.abs(d2) / TURN_SPEED) * k + 0.15), extra: { fromPos: [...to.pos], toPos: [...to.pos], fromYaw: wrapAngle(yaw), toYaw: wrapAngle(yaw) + d2, distance: Math.abs(d2) * 0.22 } });
+      }
+      if (a.duration !== undefined) fitLocomotion(parts, a.duration, len, from, pathTurn);
+      for (const part of parts) {
+        if (part.phase === 'walk') part.extra.strideScale = strideScaleFor(walkPeak(len, part.dur));
+        push(step, i, part.phase, part.dur, part.extra);
       }
       return;
     }
@@ -512,7 +558,12 @@ export function composePerformance(ctx: ComposerContext, scene: DirectorScene, a
       case 'walk_to':
       case 'turn': {
         restArm();
-        if (s.phase === 'walk') {
+        if (s.phase === 'prepare') {
+          const T = s.end - s.start;
+          const tt = u * T;
+          const env = smooth(tt / Math.min(0.8, T / 2)) * smooth((T - tt) / Math.min(0.5, T / 3));
+          c.gaze = [(s.gazeYaw ?? 0) * 0.8 * env, rad(6) * env];
+        } else if (s.phase === 'walk') {
           c.bend = a.bend ?? (a.style === 'cautious' ? 12 : a.style === 'hesitant' ? 6 : 0);
           if (a.style === 'nervous') c.gaze = [rad(28) * Math.sin(2 * Math.PI * 0.9 * u * (s.end - s.start)), rad(-4)];
         } else c.gaze = [Math.sign(s.toYaw - s.fromYaw) * 0.3 * Math.sin(Math.PI * u), 0];
@@ -617,13 +668,13 @@ export function composePerformance(ctx: ComposerContext, scene: DirectorScene, a
 
   const poseAt = (s: SegData, t: number) => {
     const { root, ch } = channelsAt(s, t);
-    const amp = s.phase === 'walk' ? (s.step.action.amplitude ?? (s.step.action.style === 'exaggerated' ? 1.6 : s.step.action.style === 'cautious' ? 0.75 : 1)) : 1;
+    const amp = s.phase === 'walk' ? (s.step.action.amplitude ?? (s.step.action.style === 'exaggerated' ? 1.6 : s.step.action.style === 'cautious' ? 0.75 : 1)) * s.strideScale : 1;
     const out = ctx.compose({
       t,
       rootPos: root.pos,
       yaw: root.yaw,
       walkWeight: root.walkW,
-      walkTime: (root.dist / ctx.strideLength) * ctx.walk.duration,
+      walkTime: ((s.phase0 + (root.dist - s.dist0) / s.strideScale) / ctx.strideLength) * ctx.walk.duration,
       amplitude: amp,
       bend: ch.bend,
       gaze: ch.gaze,

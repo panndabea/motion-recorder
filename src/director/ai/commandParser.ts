@@ -92,6 +92,83 @@ function scopeMatch(s: string): ActionMatch | null {
   return null;
 }
 
+/** References that are not an action type: the whole performance, a part of it, or "it" (context). */
+function refScope(s: string): ActionMatch {
+  if (has(s, /\b(last|final|second half of the|letzte\w*) (part|bit|section|half|teil|hälfte)\b|\bthe end(ing)?\b|\bam ende\b/)) return { scope: 'last_part' };
+  if (has(s, /\b(first|opening|erste\w*) (part|bit|section|half|teil|hälfte)\b|\bthe beginning\b|\bam anfang\b/)) return { scope: 'first_part' };
+  if (has(s, /\b(entire|whole|everything|all of it|overall|in total|total|full|performance|sequence|scene|insgesamt|gesamte?n?|ganze?n?|alles|komplett\w*)\b/)) return { scope: 'sequence' };
+  return { scope: 'context' };
+}
+
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, fifteen: 15, twenty: 20, thirty: 30,
+  eins: 1, einer: 1, zwei: 2, drei: 3, vier: 4, fünf: 5, sechs: 6, sieben: 7, acht: 8, neun: 9, zehn: 10, zwölf: 12, fünfzehn: 15, zwanzig: 20, dreißig: 30,
+};
+const NUM = `\\b(\\d+(?:[.,]\\d+)?|${Object.keys(NUMBER_WORDS).join('|')})`;
+
+/** Explicit time amounts: "8 seconds", "8s", "1.5 sec", "eight seconds", "acht Sekunden", "half a second", "1 minute". */
+function explicitSeconds(s: string): number | undefined {
+  if (has(s, /\b(half a second|eine halbe sekunde)\b/)) return 0.5;
+  const m = s.match(new RegExp(`${NUM}\\s*-?\\s*(s|sec|secs|second|seconds|sek|sekunden?|min|mins|minute|minutes|minuten?)\\b`));
+  if (!m) return undefined;
+  const n = NUMBER_WORDS[m[1]] ?? parseFloat(m[1].replace(',', '.'));
+  return /^min/.test(m[2]) ? n * 60 : n;
+}
+
+const MIN_RE = /\b(at least|no less than|not less than|a minimum of|minimum( of)?|mindestens|wenigstens|minimal)\b/;
+const MAX_RE = /\b(at most|no more than|not more than|no longer than|not longer than|a maximum of|maximum( of)?|within|in under|under|less than|höchstens|maximal|innerhalb( von)?|unter)\b/;
+const EXACT_RE = /\b(exactly|precisely|genau|exakt)\b/;
+const TIME_VERB = /\b(take|takes|taking|last|lasts|lasting|complete|completes|finish|finishes|spend|spends|long|dauer\w*|brauch\w*|nimm dir|lass dir)\b|\bin (exactly |about |roughly |genau |etwa )?\d/;
+
+/** Speed/duration multipliers expressed in words ("twice as slow", "half as fast", "more time"). */
+function durationFactor(s: string, hasSeconds: boolean): number | undefined {
+  if (has(s, /\b(three times|3x|thrice) as (slow|long)\b|\bdreimal so (langsam|lang)\b|\bthird of the speed\b/)) return 3;
+  if (has(s, /\b(twice|two times|2x|2 times|double) (as )?(slow|long)\b|\bdoppelt so (langsam|lang)\b|\bhalf (as fast|as quick|the speed)\b|\bhalb so schnell\b|\bdouble the (time|duration)\b|\bdoppelte (zeit|dauer)\b/)) return 2;
+  if (has(s, /\b(twice|two times|2x) as (fast|quick)\b|\bhalf as long\b|\bdoppelt so schnell\b|\bhalb so lang\b|\bhalf the (time|duration)\b/)) return 0.5;
+  if (has(s, /\b(more|extra) time\b|\bmehr zeit\b|\btake (your|his|her|its) time\b|\bdrag (it )?out\b/)) return 1.5;
+  if (has(s, /\bless time\b|\bweniger zeit\b/)) return 0.7;
+  if (has(s, /\bslow(s)? (it |things |that )?down\b|\bverlangsam\w*\b/)) return 1.4;
+  if (has(s, /\bspeed(s)? (it |things |that )?up\b|\bbeschleunig\w*\b/)) return 0.7;
+  if (!hasSeconds && has(s, /\b(longer|länger)\b/)) return 1.5;
+  if (!hasSeconds && has(s, /\b(shorter|kürzer)\b/)) return 0.67;
+  return undefined;
+}
+
+/**
+ * Temporal edits: exact/minimum/maximum durations and duration multipliers, applied to an explicitly named
+ * action, the whole performance, a part of it, or the current context ("it", "the movement").
+ */
+function parseTiming(s: string, out: ParseResult): boolean {
+  const secs = explicitSeconds(s);
+  const factor = durationFactor(s, secs !== undefined);
+  if (secs === undefined && factor === undefined) return false;
+  const scopeText = s.replace(/\b(take|takes|taking|spend|spends|make|complete|finish)\b/g, ' ');
+  const match: ActionMatch = refScope(s).scope !== 'context' ? refScope(s) : (scopeMatch(scopeText) ?? { scope: 'context' });
+  if (secs !== undefined) {
+    const min = MIN_RE.test(s);
+    const max = !min && MAX_RE.test(s);
+    const exact = EXACT_RE.test(s);
+    if (!min && !max && !exact && !TIME_VERB.test(s)) return false; // e.g. "pause for 2 seconds" creates an action
+    if (has(s, /\b(longer|shorter|länger|kürzer)\b/) && !has(s, /\blast|dauer/)) return false; // relative amounts are not supported
+    const operation = min ? 'set_min_duration' : max ? 'set_max_duration' : 'set_duration';
+    out.commands.push({ operation, match, seconds: Math.round(secs * 1000) / 1000 });
+    out.interpretation.push(`Timing: ${describe(match)} should take ${min ? 'at least' : max ? 'at most' : 'exactly'} ${+secs.toFixed(2)} s.`);
+    return true;
+  }
+  out.commands.push({ operation: 'scale_duration', match, factor: factor! });
+  out.interpretation.push(`Timing: ${describe(match)} ${factor! > 1 ? `${+factor!.toFixed(2)}× as long` : `${+(1 / factor!).toFixed(2)}× as fast`}.`);
+  return true;
+}
+
+/** Parses a short answer to a clarification question ("the walk", "the whole sequence"). */
+export function parseScopeAnswer(text: string): ActionMatch | null {
+  const s = text.toLowerCase().replace(/[“”"!?.,]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!s || s.split(' ').length > 6) return null;
+  const ref = refScope(s);
+  if (ref.scope !== 'context') return ref;
+  return scopeMatch(s);
+}
+
 /** Interprets one clause as an edit of the existing sequence. */
 function parseEdit(s: string, ctx: ParseContext, out: ParseResult): boolean {
   if (!ctx.hasSequence) return false;
@@ -106,7 +183,9 @@ function parseEdit(s: string, ctx: ParseContext, out: ParseResult): boolean {
     const specs = parseActions(ins[1], out, true);
     if (anchor && specs && specs.length) {
       const position = /^(before|bevor|vor)/.test(ins[2]) ? 'before' : 'after';
-      out.commands.push({ operation: 'insert_actions', position, anchor: { ...anchor, occurrence: position === 'before' ? 'first' : 'last' }, actions: specs });
+      const at: ActionMatch = { ...anchor, occurrence: position === 'before' ? 'first' : 'last' };
+      if (specs.length === 1 && specs[0].type === 'pause') out.commands.push({ operation: 'insert_pause', position, anchor: at, seconds: specs[0].duration ?? 1 });
+      else out.commands.push({ operation: 'insert_actions', position, anchor: at, actions: specs });
       out.interpretation.push(`Insert ${specs.map((x) => x.type).join(', ')} ${position} ${describe(anchor)}.`);
       return true;
     }
@@ -129,7 +208,7 @@ function parseEdit(s: string, ctx: ParseContext, out: ParseResult): boolean {
       return true;
     }
   }
-  const scope: ActionMatch = scopeMatch(s.replace(/\b(do it|mach es|das ganze)\b/, '')) ?? {};
+  let scope: ActionMatch = scopeMatch(s.replace(/\b(do it|mach es|das ganze)\b/, '')) ?? refScope(s);
   const changes: Extract<DirectorCommand, { operation: 'modify_actions' }>['changes'] = {};
   if (has(s, /\b(much )?(slower|more slowly|langsamer)\b/)) changes.speedFactor = has(s, /\bmuch|viel\b/) ? 0.5 : 0.7;
   if (has(s, /\b(faster|quicker|more quickly|schneller)\b/)) changes.speedFactor = has(s, /\bmuch|viel\b/) ? 2 : 1.4;
@@ -138,6 +217,10 @@ function parseEdit(s: string, ctx: ParseContext, out: ParseResult): boolean {
     changes.speedFactor = (changes.speedFactor ?? 1) * 0.8;
   }
   if (has(s, /\b(more )?(nervous|nervöser|nervös)\b/)) changes.style = 'nervous';
+  if (has(s, /\b(more )?(hesitant|hesitating|zögerlicher|zögerlich|zögernd)\b/) && changes.style !== 'cautious') {
+    changes.style = 'hesitant';
+    changes.speedFactor = (changes.speedFactor ?? 1) * 0.85;
+  }
   if (has(s, /\b(more )?(exaggerated|dramatic|übertriebener|übertrieben)\b/)) {
     changes.style = 'exaggerated';
     changes.amplitude = 1.6;
@@ -147,19 +230,19 @@ function parseEdit(s: string, ctx: ParseContext, out: ParseResult): boolean {
   if (has(s, /\b(bend(ing)? (more|further)|more bent|bend forward|tiefer gebückt|mehr bücken)\b/)) changes.bend = 25;
   if (has(s, /\b(left hand|linke[nr]? hand)\b/)) changes.hand = 'left';
   if (has(s, /\b(right hand|rechte[nr]? hand)\b/)) changes.hand = 'right';
-  const secs = seconds(s);
-  if (secs !== undefined && has(s, /\b(longer|shorter|last|länger|kürzer|dauern?)\b/)) changes.duration = secs;
-  else if (has(s, /\b(longer|länger)\b/)) changes.durationFactor = 1.5;
-  else if (has(s, /\b(shorter|kürzer)\b/)) changes.durationFactor = 0.6;
   if (Object.keys(changes).length === 0) return false;
-  if (changes.durationFactor !== undefined && !scope.type) scope.type = ['pause', 'look_around', 'look_at', 'idle', 'bend'];
-  if (changes.hand) scope.type = ['reach', 'grip', 'lift', 'place', 'release'];
-  out.commands.push({ operation: 'modify_actions', match: scope, changes });
-  out.interpretation.push(`Change ${scope.type ? describe(scope) : 'all actions'}: ${Object.entries(changes).map(([k, v]) => `${k}=${typeof v === 'number' ? +v.toFixed(2) : v}`).join(', ')}.`);
+  if (changes.hand) scope = { type: ['reach', 'grip', 'lift', 'place', 'release'] };
+  const styleOnly = Object.keys(changes).every((k) => k === 'style' || k === 'amplitude');
+  if (styleOnly) out.commands.push({ operation: 'modify_style', match: scope, style: changes.style, amplitude: changes.amplitude });
+  else out.commands.push({ operation: 'modify_actions', match: scope, changes });
+  out.interpretation.push(`${styleOnly ? 'Style' : 'Change'} of ${describe(scope)}: ${Object.entries(changes).map(([k, v]) => `${k}=${typeof v === 'number' ? +v.toFixed(2) : v}`).join(', ')}.`);
   return true;
 }
 
 function describe(m: ActionMatch): string {
+  if (m.scope === 'sequence') return 'the whole performance';
+  if (m.scope === 'context') return 'the current action(s)';
+  if (m.scope === 'first_part' || m.scope === 'last_part') return `the ${m.scope === 'first_part' ? 'first' : 'last'} part`;
   const t = m.type === undefined ? ['actions'] : Array.isArray(m.type) ? m.type : [m.type];
   return t.join('/');
 }
@@ -241,10 +324,20 @@ export function parseDirection(text: string, ctx: ParseContext): ParseResult {
   let createNew = !ctx.hasSequence || has(norm, /\b(start over|from scratch|new (scene|take|sequence)|instead|neu anfangen|von vorne?|stattdessen)\b/);
   const pending: ActionSpec[] = [];
   for (const sRaw of sentences) {
-    const s = sRaw.replace(/\b(start over|from scratch|instead|stattdessen|please|bitte|now|jetzt|the actor|he|she|er|sie)\b/g, ' ').replace(/\s+/g, ' ').trim();
+    const s = sRaw.replace(/\b(start over|from scratch|instead|stattdessen|please|bitte|now|jetzt|actually|okay|ok|eigentlich|doch|the actor|he|she|er|sie)\b/g, ' ').replace(/\s+/g, ' ').trim();
     if (!s) continue;
-    if (!createNew && parseEdit(s, ctx, out)) continue;
-    const specs = parseActions(s, out);
+    // Timing clauses can be mixed with actions: "walk to the table and take at least 8 seconds".
+    const clauses = s.split(/,|\band then\b|\band\b|\bund\b/).map((x) => x.trim()).filter(Boolean);
+    const probe = (c: string) => parseTiming(c, { commands: [], interpretation: [], unsupported: [] });
+    const timingClauses = clauses.length > 1 ? clauses.filter(probe) : [];
+    let rest = s;
+    if (timingClauses.length) {
+      rest = clauses.filter((c) => !timingClauses.includes(c)).join(' and ');
+      for (const c of timingClauses) parseTiming(c, out);
+      if (!rest) continue;
+    } else if (!has(s, /\b(before|after|bevor|nachdem)\b/) && parseTiming(s, out)) continue;
+    if (!createNew && parseEdit(rest, ctx, out)) continue;
+    const specs = parseActions(rest, out);
     if (specs) pending.push(...specs);
   }
   if (pending.length) {
@@ -254,7 +347,9 @@ export function parseDirection(text: string, ctx: ParseContext): ParseResult {
     createNew = false;
   }
   if (out.unsupported.length && out.commands.length === 0) {
-    out.interpretation.push(`Not supported: "${out.unsupported.join('", "')}". Supported actions: ${ACTION_TYPES.join(', ')}.`);
+    out.interpretation.push(
+      `Not supported: "${out.unsupported.join('", "')}". I can create actions (${ACTION_TYPES.join(', ')}), change timing ("take at least 8 seconds", "twice as slow", "pause for 2 seconds before releasing"), style ("more cautious") and order ("look around before putting it down", "move the hesitation to the end").`,
+    );
   }
   return out;
 }
