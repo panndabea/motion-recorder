@@ -31,7 +31,7 @@ export interface MotionRigInfo {
 }
 
 export interface MotionMeta {
-  source: 'webcam' | 'synthetic' | 'glb-import' | 'unknown';
+  source: 'webcam' | 'synthetic' | 'glb-import' | 'director' | 'unknown';
   /** `vertical-grounded`: hips translation only compensates for leg bending (no horizontal root motion). */
   rootMotion: 'none' | 'vertical-grounded' | 'clip';
   calibration?: unknown;
@@ -196,7 +196,7 @@ export function validateMotion(input: unknown, rig?: RigDefinition): ValidationR
       : (rigIn as unknown as MotionRigInfo),
     tracks,
     meta: {
-      source: (['webcam', 'synthetic', 'glb-import'] as const).find((s) => s === meta.source) ?? 'unknown',
+      source: (['webcam', 'synthetic', 'glb-import', 'director'] as const).find((s) => s === meta.source) ?? 'unknown',
       rootMotion: (['none', 'vertical-grounded', 'clip'] as const).find((s) => s === meta.rootMotion) ?? 'none',
       calibration: meta.calibration,
       app: typeof meta.app === 'string' ? meta.app : undefined,

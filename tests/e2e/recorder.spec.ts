@@ -126,7 +126,24 @@ test('live tracking drives the mannequin, records, plays back, and exports/impor
   await page.getByTestId('recording-item').nth(2).getByTestId('delete-recording').click();
   await expect(page.getByTestId('recording-item')).toHaveCount(2);
 
-  // Recordings survive a reload (IndexedDB).
+  // Recordings survive a reload (IndexedDB). Wait until the delete has been committed before reloading.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          new Promise<number>((resolve) => {
+            const req = indexedDB.open('motion-recorder');
+            req.onsuccess = () => {
+              const c = req.result.transaction('recordings').objectStore('recordings').count();
+              c.onsuccess = () => {
+                resolve(c.result);
+                req.result.close();
+              };
+            };
+          }),
+      ),
+    )
+    .toBe(2);
   await page.reload();
   await expect(page.getByTestId('recording-item')).toHaveCount(2);
   await page.screenshot({ path: info.outputPath('final.png') });

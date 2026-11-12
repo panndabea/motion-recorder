@@ -149,6 +149,67 @@ fresh mannequin and compares it to the recording; a failed check aborts the
 export. Unit tests additionally run the Khronos glTF validator (0 errors) and
 replay the re-imported clip on a fresh rig instance.
 
+## AI Director Studio (`/director`)
+
+A second workspace in the same app. Open it with **AI Director Studio →** in the MotionRecorder header, or go to `/director`. **← Back to MotionRecorder** returns to `/recorder`. Switching uses client-side routing (no reload). The recorder releases the webcam when you leave it, and its takes stay in IndexedDB. The Director never touches the camera.
+
+### What you can do
+- **Stage:** the mannequin, a table, a glass, the ground, a camera and a key light, each with a stable id (`actor`, `table`, `glass`, ...). Select objects in the hierarchy or on the stage. Move them with the gizmo or in the inspector. Orbit the camera; **Reset camera** restores the saved view.
+- **Direct with text:** for example *"Walk to the table, pick up the glass, look around nervously and put it back on the table."* Follow-ups edit only the actions they name:
+  - *"Do it more slowly."* / *"Make him more cautious."*
+  - *"Look around before putting down the glass."*
+  - *"Pause before releasing the glass."* / *"Move the hesitation to the end."*
+  - *"Make the walk more exaggerated."*
+  - Timing: *"Take at least 8 seconds."*, *"Make the entire movement last 12 seconds."*, *"Complete the action in exactly 5 seconds."*, *"Finish the walk in at most 3 seconds."*, *"Actually, make it twice as slow."*, *"Slow down the last part."*, *"Spend more time looking around."*, *"Pause for 2 seconds before releasing the glass."*, *"Look around for 2 seconds before placing it."*, *"Make the walking faster but the placing slower."*
+  - Simple German also works, e.g. *"Geh zum Tisch und nimm das Glas."*
+- **Timeline:** lanes for Actor Root, Body Motion, Head/Gaze, Right/Left Arm, Object Interaction, Glass Transform and Events (attach/release). You can play, pause, loop, scrub, and zoom. Click a clip to inspect it and edit its speed, duration, style, bend or amplitude; move it earlier or later, delete it, or insert a pause after it.
+- **Conversational timing:** "at least" only extends what is too short (a 10 s take stays 10 s), "at most" only shortens, "exactly"/"last N seconds" sets the duration, "twice as slow" scales it. "It", "the movement" and "the action" mean the selected clip, otherwise what the previous instruction created or changed; "the whole sequence" and "the first/last part" mean what they say. If that is still ambiguous the Director asks which part you mean, and a short answer ("the walk") completes the original instruction. A request that changes nothing says "No change" and why; an impossible one (e.g. the whole scene in 1 s) is rejected with the minimum it needs.
+- **Undo/Redo** covers prompts, timeline edits and object moves.
+- **Projects:** the current project is autosaved in IndexedDB (`director-studio` database, separate from recordings). **Save** downloads a versioned `*.director.json`; **Open** loads one after validation; **New** starts an empty scene. A project stores the scene, the structured action list (with ids), the chat with the applied structured commands, the camera and settings. Reopening a project recomposes the performance from the stored actions and never re-interprets the chat text.
+- **Export:**
+  - **Motion JSON:** the actor motion in the MotionRecorder format, `meta.source: "director"`, root motion on the `root` bone.
+  - **Actor GLB:** the mannequin with the baked animation, re-imported as a check before download.
+  - **Scene GLB:** mannequin, table, ground and the glass with its own baked transform animation, also re-imported as a check.
+  - **Send to MotionRecorder:** saves the baked take into the recorder's library and switches workspaces.
+
+### How it works
+1. **Interpret:** `src/director/ai/commandParser.ts` is a deterministic, rule-based interpreter that turns text into structured commands (`create_sequence`, `append_actions`, `insert_actions`, `modify_actions`, `move_actions`, `delete_actions`, and the timing/style edits `set_duration`, `set_min_duration`, `set_max_duration`, `scale_duration`, `insert_pause`, `modify_style`). Contextual references (`scope: context | sequence | first_part | last_part`) are resolved to concrete action ids by `ai/editContext.ts` before anything is applied; `ai/directorSession.ts` runs the whole turn. Phrases it cannot map are reported as unsupported, and no motion is invented for them. Optionally a **local language model** interprets the text instead (see below); it produces the same commands.
+2. **Validate:** `commandSchema.ts` checks every command: action types (`walk_to`, `turn`, `reach`, `grip`, `lift`, `place`, `release`, `look_at`, `look_around`, `pause`, `bend`, `idle`, `sit`, `stand_up`), object references, value ranges and operations. The local model's output passes the same validator; anything invalid is never applied.
+3. **Plan:** `planning/actionPlanner.ts` simulates the glass state machine (on table → reached → held → placed → released) and where the actor stands. It inserts missing prerequisites, marked `auto` (walk to the glass before reaching, reach before grip, release after place), and rejects transitions it cannot fix, such as releasing a glass that is not held. `sceneConstraints.ts` computes approach points from the table bounds, the reach envelope and the placement spots.
+4. **Compose:** `animation/motionComposer.ts` builds the pose as a pure function of time `t`. Scrubbing and seeking are therefore exact, and playback is reproducible:
+   - **Base motion:** the library clips `Idle_Loop` and `Walk_Loop`. The walk phase is driven by the distance travelled, so the feet match the root speed. Horizontal root motion goes on the `root` bone.
+   - **Procedural layers:** spine bend, head/neck gaze (look-at), and analytic two-bone IK for the arms using the rig's own bone lengths. The upper-body bend needed to reach a target is solved automatically.
+   - **Glass:** attached to the palm at the end of `grip` with the relative offset kept. It follows the hand while held, settles exactly on the placement point, and stays there after `release`.
+5. **Retime:** `timeline/retiming.ts` turns a duration request into explicit `duration` values on the affected actions (stored in the project, shown on the timeline, undoable, baked into exports). For a group it finds one common stretch factor, clamped per action to plausible limits (e.g. a grip can be at most 4× slower; pauses absorb what is left). A longer walk first slows the gait down to about 0.38 m/s with shorter strides, so the cycle stays tied to the distance travelled; any remaining time becomes an anticipation phase before setting off (idle breathing, gaze towards the destination), not a frozen pose. Attach/release events and the glass follow automatically because they are derived from the composed action times.
+6. **Bake:** `animation/animationBaker.ts` samples the performance at 30 fps into MotionRecorder tracks, plus a separate glass track for the scene export.
+
+**Sitting:** the scene has a chair (`#chair`). “Sit down” / “take a seat” / „setz dich hin“ plays `Sitting_Enter`, then `Sitting_Idle_Loop` while seated, and “stand up” plays `Sitting_Exit`. The planner walks the actor to the chair first, refuses to sit while holding the glass, and inserts a short seated pause plus `stand_up` before the next walk or interaction. While seated the actor can still look, pause and bend.
+
+**Walking back:** “walk back”, “go back”, „geh zurück“ return to the start mark; “walk backwards” still steps 1.5 m backwards.
+
+### Local language model (optional)
+
+Free-form instructions (“Schlendere zum Tisch, setz dich kurz hin und komm zurück”) can be interpreted by a model running on your own machine. The browser talks directly to its OpenAI-compatible API; nothing leaves your computer.
+
+1. Install [Ollama](https://ollama.com) and run `ollama pull qwen2.5:3b` (about 2 GB). Ollama allows requests from `http://localhost:*` by default.
+   For LM Studio: load a model, start the local server and enable CORS; the URL is `http://localhost:1234/v1`.
+2. In the Director, click ⚙ next to “Director”, tick **Use a local model**, check URL (`http://localhost:11434/v1`), model name and timeout (default 180 s; CPU-only machines can need a minute or more for the first prompt), and press **Test connection**.
+
+How it stays safe and reproducible (`src/director/ai/llmInterpreter.ts`, `runPromptWithModel` in `ai/directorSession.ts`):
+- The model gets the action vocabulary, the scene object ids, the current sequence (ids, types, durations) and the selection, and must reply with `{interpretation, commands, unsupported}` (temperature 0). `pick_up` / `put_down` shorthands are expanded into `reach, grip, lift` / `place, release`.
+- The commands go through `validateCommands`, the planner (which still inserts walking, standing up, releasing) and the composer, exactly like parser output. The resulting action list, not the model, is what is saved, undone and exported, so a performance never depends on the model again.
+- If the server is unreachable, times out, or returns invalid commands, the rule-based parser handles the prompt and the reply starts with `[Rule-based parser used: …]`.
+- `DIRECTOR_LLM_URL=http://localhost:11434/v1 npx vitest run tests/unit/directorLlm.live.test.ts` runs a few free-form prompts against a real model.
+
+### Limitations (Director)
+- Without a local model the interpreter is rule-based: it understands the documented vocabulary and close variants, not arbitrary language. With a model, free phrasing works, but only actions the engine can animate are possible; new motions are not generated from text.
+- The local model is optional and was tested with Ollama + `qwen2.5:3b` (CPU only, roughly 3–20 s per prompt). LM Studio uses the same OpenAI-compatible API but was not tested.
+- One actor, one table, one glass. Only the glass can be picked up.
+- There is no physics or collision avoidance. Walks are straight lines, and the planner only picks the table side to approach.
+- Fingers do not curl around the glass, and turning in place slides the feet slightly.
+- `PickUp_Table` and the other library clips are not used yet. Reaching is done with IK and bending.
+- Timing phrases follow fixed patterns (numbers as digits or words up to 30, seconds/minutes). Relative words without a number ("a bit slower") use fixed factors (×1.4 / ×1.5). Retiming does not add new gestures; extra time is spread over the existing actions.
+
 ## Tests
 
 ```bash

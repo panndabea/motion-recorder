@@ -8,3 +8,4 @@ playwright-report
 public/mediapipe/
 public/models/*.task
 tests/e2e/.artifacts/
+scratch/

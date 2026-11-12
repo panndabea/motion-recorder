@@ -91,3 +91,7 @@ select, input[type='text'], .name-input, .recordings input {
 .toast-warning { border-color: var(--warn); }
 .toast-error { border-color: var(--danger); }
 @media (max-width: 900px) { .panels { grid-template-columns: 1fr; } }
+
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+.director-link { text-decoration: none; background: linear-gradient(135deg, #7c5cff, #c04cff); color: #fff; border: none; font-weight: 600; }
+.director-link:hover { filter: brightness(1.1); }
