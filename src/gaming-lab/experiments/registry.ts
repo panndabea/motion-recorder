@@ -4,12 +4,13 @@ import { footLocking } from './footLocking';
 import { gazeController } from './gazeController';
 import { animationRetiming } from './animationRetiming';
 import { inverseKinematics } from './inverseKinematics';
+import { motionMatching } from './motionMatching';
 import { motionWarping } from './motionWarping';
 import { objectInteraction } from './objectInteraction';
 import { secondaryMotion } from './secondaryMotion';
 
 /** Order shown in the concept explorer. */
-export const EXPERIMENTS: Experiment[] = [inverseKinematics, footLocking, motionWarping, animationLayers, gazeController, secondaryMotion, objectInteraction, animationRetiming];
+export const EXPERIMENTS: Experiment[] = [inverseKinematics, footLocking, motionWarping, animationLayers, gazeController, motionMatching, secondaryMotion, objectInteraction, animationRetiming];
 
 export const PLANNED: { id: string; title: string }[] = [
   { id: 'inverse-kinematics', title: 'Inverse Kinematics' },

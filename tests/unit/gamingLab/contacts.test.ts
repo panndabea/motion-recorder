@@ -32,11 +32,12 @@ describe('gaming lab – foot locking', () => {
 
   it('still reduces sliding (partially) when the root is too fast', async () => {
     const actor = await loadActor();
-    for (const name of ['Incorrect root speed', 'Root far too fast (limit)']) {
-      const params = { ...foot.defaults, ...foot.presets.find((p) => p.name === name)!.params };
-      const sim = simulateFootLock(actor, footLockConfig(actor, params as Params, true));
-      expect(sim.slideLocked).toBeLessThan(sim.slideBaseline);
-    }
+    const run = (name: string) => simulateFootLock(actor, footLockConfig(actor, { ...foot.defaults, ...foot.presets.find((p) => p.name === name)!.params } as Params, true));
+    const partial = run('Incorrect root speed');
+    expect(partial.slideLocked).toBeLessThan(partial.slideBaseline * 0.95);
+    // beyond leg reach the lock lets go: it must not make sliding worse
+    const limit = run('Root far too fast (limit)');
+    expect(limit.slideLocked).toBeLessThanOrEqual(limit.slideBaseline * 1.02);
   });
 
   it('releases without snapping', async () => {

@@ -210,6 +210,14 @@ How it stays safe and reproducible (`src/director/ai/llmInterpreter.ts`, `runPro
 - `PickUp_Table` and the other library clips are not used yet. Reaching is done with IK and bending.
 - Timing phrases follow fixed patterns (numbers as digits or words up to 30, seconds/minutes). Relative words without a number ("a bit slower") use fixed factors (×1.4 / ×1.5). Retiming does not add new gestures; extra time is spread over the existing actions.
 
+## Gaming Animation Lab (`/gaming-lab`)
+
+An educational workspace with nine interactive experiments of game character-animation techniques, all running on the real `mannequin.glb` (`DEF-*` bones, its own clips). Open it with **Gaming Animation Lab** in the MotionRecorder header or go to `/gaming-lab`.
+
+Inverse Kinematics · Foot Locking / Foot IK · Motion Warping · Animation Layers & Blending · Look-at / Gaze · Motion Matching · Procedural Secondary Motion · Object Interaction & Constraints · Animation Retiming.
+
+Each has live controls, presets, reset, debug overlays, a technique on/off toggle, synchronised split-screen (baseline left, technique right, shared clock and camera), and an explanation (what / why / how / try this / disabled / AI Director use / challenge / advanced). Results can be baked to MotionRecorder JSON, GLB or saved as a recording. Details, algorithms and limitations: [`docs/GAMING_LAB.md`](docs/GAMING_LAB.md).
+
 ## Tests
 
 ```bash

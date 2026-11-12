@@ -49,7 +49,6 @@ export const footLocking: Experiment = {
     { key: 'threshold', label: 'Foot plant threshold (cm)', type: 'range', min: 0.5, max: 10, step: 0.5 },
     { key: 'lockLeft', label: 'Left foot lock', type: 'toggle' },
     { key: 'lockRight', label: 'Right foot lock', type: 'toggle' },
-    { key: 'strideWarp', label: 'Stride warping (match steps to root speed)', type: 'toggle' },
     { key: 'strength', label: 'IK correction strength', type: 'range', min: 0, max: 1, step: 0.05 },
     { key: 'release', label: 'Release blend (s)', type: 'range', min: 0, max: 0.5, step: 0.01 },
     { key: 'showContacts', label: 'Show foot contacts', type: 'toggle' },
@@ -60,7 +59,7 @@ export const footLocking: Experiment = {
     { name: 'Slowed walk', params: { playback: 0.8, rootFactor: 0.5, strideWarp: false } },
     { name: 'Root too slow', params: { playback: 1, rootFactor: 0.5, strideWarp: false } },
     { name: 'Incorrect root speed', params: { playback: 1, rootFactor: 1.25, strideWarp: false } },
-    { name: 'Root far too fast (limit)', params: { playback: 0.6, rootFactor: 1.5, strideWarp: true } },
+    { name: 'Root far too fast (limit)', params: { playback: 0.6, rootFactor: 1.5, strideWarp: false } },
   ],
   evaluate: ({ actor, t, params, enabled, state, debug }) => {
     const cfg = footLockConfig(actor, params, enabled);

@@ -24,20 +24,16 @@ export function estimateClipSpeed(actor: LabActor, clip: string, samples = 120):
   const hit = cache.get(clip);
   if (hit !== undefined) return hit;
   const d = actor.sampler(clip).duration;
-  let sum = 0;
-  let n = 0;
+  const vels: number[] = [];
+  const dt = d / samples;
   for (const side of [FEET.left.foot, FEET.right.foot]) {
     const pts: Vector3[] = [];
-    for (let i = 0; i <= samples; i++) pts.push(sampleBone(actor, clip, (i / samples) * d, side));
-    const minY = Math.min(...pts.map((p) => p.y));
-    for (let i = 0; i < samples; i++) {
-      if (pts[i].y < minY + 0.03 / actor.scale && pts[i + 1].y < minY + 0.03 / actor.scale) {
-        sum += -(pts[i + 1].z - pts[i].z) / (d / samples);
-        n++;
-      }
-    }
+    for (let i = 0; i <= samples; i++) pts.push(sampleBone(actor, clip, i * dt, side));
+    const low = Math.min(...pts.map((p) => p.y)) + 0.03 / actor.scale;
+    for (let i = 0; i < samples; i++) if (pts[i].y < low && pts[i + 1].y < low) vels.push(-(pts[i + 1].z - pts[i].z) / dt);
   }
-  const speed = n ? Math.max(0, (sum / n) * actor.scale) : 0;
+  // mean planted-foot backward velocity over the contact phase = average travel speed
+  const speed = vels.length ? Math.max(0, (vels.reduce((a, b) => a + b, 0) / vels.length) * actor.scale) : 0;
   cache.set(clip, speed);
   return speed;
 }
