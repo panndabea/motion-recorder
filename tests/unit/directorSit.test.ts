@@ -49,6 +49,12 @@ describe('sitting on the chair', () => {
     expect(acts('Walk back.')).toEqual([{ type: 'walk_to', target: 'start' }]);
     expect(acts('Walk backwards.')).toEqual([{ type: 'walk_to', direction: 'back' }]);
     expect(acts('Walk to the chair.')).toEqual([{ type: 'walk_to', target: 'chair' }]);
+    expect(acts('Schlendere gemütlich zum Tisch, setz dich kurz hin und komm dann wieder zurück.')).toEqual([
+      { type: 'walk_to', target: 'table' },
+      { type: 'sit', target: 'chair' },
+      { type: 'walk_to', target: 'start' },
+    ]);
+    expect(acts('Geh zum Tisch und dann wieder zurück.')).toEqual([{ type: 'walk_to', target: 'table' }, { type: 'walk_to', target: 'start' }]);
   });
 
   it('performs the full user prompt in order, adding the steps it implies', () => {

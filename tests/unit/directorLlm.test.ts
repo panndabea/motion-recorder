@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { parseMannequin } from '../../src/rig/mannequinLoader';
-import { ACTION_TYPES } from '../../src/director/ai/commandSchema';
+import { ACTION_TYPES, validateCommands } from '../../src/director/ai/commandSchema';
 import { runPromptWithModel } from '../../src/director/ai/directorSession';
 import { buildMessages, DEFAULT_LLM_SETTINGS, expandMacros, extractJson, type FetchLike } from '../../src/director/ai/llmInterpreter';
 import { ComposerContext } from '../../src/director/animation/motionComposer';
@@ -53,6 +53,11 @@ describe('local model interpreter', () => {
         ],
       },
     ]);
+  });
+
+  it('reads timing edits without a target as "it", not as the whole performance', () => {
+    const v = validateCommands([{ operation: 'set_min_duration', match: {}, seconds: 8 }, { operation: 'scale_duration', factor: 2 }], { objectIds: ['actor'] });
+    expect(v.ok && v.commands.map((c) => ('match' in c ? c.match : null))).toEqual([{ scope: 'context' }, { scope: 'context' }]);
   });
 
   it('extracts JSON from fenced or chatty replies', () => {

@@ -270,7 +270,7 @@ function parseOne(p: string): ActionSpec[] | null {
   const bendWhile = has(p, /\b(bending|bent|stooped|hunched|leaning)\b( forward)?|\bgebückt|vorgebeugt/);
   if (has(p, /\b(stand(s|ing)? up|get(s|ting)? up|rise|aufstehen|steh\w* auf|erheb\w*)\b/)) return [withOpt({ type: 'stand_up' }, p)];
   if (has(p, /\b(sit(s|ting)?( down)?|take a seat|have a seat|be seated|setz\w* (dich|sich)( hin)?|hinsetzen|hinsetz\w*|sitzen|platz nehmen|nimm platz|nehm\w* platz)\b/)) return [withOpt({ type: 'sit', target: 'chair' }, p)];
-  if (has(p, /\b(walk|go|move|step|stroll|head|come|approach|geh\w*|lauf\w*|lauf|schreit\w*|komm\w*)\b/) && !has(p, /\b(look|schau)/)) {
+  if (has(p, /\b(walk|go|move|step|stroll|head|come|approach|geh\w*|lauf\w*|lauf|schreit\w*|komm\w*|schlender\w*|spazier\w*|bummel\w*|wander\w*)\b/) && !has(p, /\b(look|schau)/)) {
     const target = findTarget(p);
     const spec: ActionSpec = target ? { type: 'walk_to', target } : { type: 'walk_to', direction: findDirection(p) ?? 'forward' };
     // "walk back" / "go back" / "come back": return to the start mark (not a backwards walk).
@@ -324,7 +324,14 @@ function parseOne(p: string): ActionSpec[] | null {
 
 export function parseDirection(text: string, ctx: ParseContext): ParseResult {
   const out: ParseResult = { commands: [], interpretation: [], unsupported: [] };
-  const norm = text.toLowerCase().replace(/[“”"!?]/g, ' ').replace(/\s+/g, ' ').trim();
+  const norm = text
+    .toLowerCase()
+    .replace(/[“”"!?]/g, ' ')
+    .replace(/\s+/g, ' ')
+    // "komm dann wieder zurück" / "und dann wieder zurück": one return walk, not "come" + an unparseable "zurück".
+    .replace(/\b(?:komm\w*|geh\w*|lauf\w*)\s+(?:dann\s+)?(?:wieder\s+)?zurück\b/g, 'go back')
+    .replace(/\b(?:dann\s+)?wieder\s+zurück\b/g, 'then go back')
+    .trim();
   if (!norm) return out;
   const sentences = norm.split(/[.;]|\b(?:but|aber|also|außerdem)\b/).map((x) => x.trim()).filter(Boolean);
   let createNew = !ctx.hasSequence || has(norm, /\b(start over|from scratch|new (scene|take|sequence)|instead|neu anfangen|von vorne?|stattdessen)\b/);

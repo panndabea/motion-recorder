@@ -13,7 +13,7 @@ export interface LlmSettings {
   timeoutMs: number;
 }
 
-export const DEFAULT_LLM_SETTINGS: LlmSettings = { enabled: false, baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5:3b', timeoutMs: 90000 };
+export const DEFAULT_LLM_SETTINGS: LlmSettings = { enabled: false, baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5:3b', timeoutMs: 180000 };
 
 export interface LlmContext {
   objectIds: string[];

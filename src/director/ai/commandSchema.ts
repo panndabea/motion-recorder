@@ -231,6 +231,9 @@ function validateChanges(v: unknown, where: string, errors: string[]): ActionCha
   return c;
 }
 
+/** Timing and style edits without a target (`match` missing or `{}`) refer to the current context, never to everything. */
+const contextMatch = (m: unknown) => (m === undefined || (isObj(m) && Object.keys(m).length === 0) ? { scope: 'context' } : m);
+
 /** Validates untrusted command JSON (e.g. LLM output). Accepts a single command, an array, or `{commands: [...]}`. */
 export function validateCommands(input: unknown, ctx: ValidationContext): CommandValidation {
   const errors: string[] = [];
@@ -272,11 +275,11 @@ export function validateCommands(input: unknown, ctx: ValidationContext): Comman
       const match = validateMatch(raw.match, `${where} match`, errors);
       if (match) out.push({ operation: 'delete_actions', match });
     } else if (op === 'set_duration' || op === 'set_min_duration' || op === 'set_max_duration') {
-      const match = validateMatch(raw.match ?? { scope: 'context' }, `${where} match`, errors);
+      const match = validateMatch(contextMatch(raw.match), `${where} match`, errors);
       if (!isNum(raw.seconds) || raw.seconds < 0.1 || raw.seconds > LIMITS.maxSequenceDuration) return void errors.push(`${where}: seconds must be between 0.1 and ${LIMITS.maxSequenceDuration}.`);
       if (match) out.push({ operation: op, match, seconds: raw.seconds });
     } else if (op === 'scale_duration') {
-      const match = validateMatch(raw.match ?? { scope: 'context' }, `${where} match`, errors);
+      const match = validateMatch(contextMatch(raw.match), `${where} match`, errors);
       if (!isNum(raw.factor) || raw.factor < LIMITS.minFactor || raw.factor > LIMITS.maxFactor) return void errors.push(`${where}: factor must be between ${LIMITS.minFactor} and ${LIMITS.maxFactor}.`);
       if (match) out.push({ operation: op, match, factor: raw.factor });
     } else if (op === 'insert_pause') {
@@ -285,7 +288,7 @@ export function validateCommands(input: unknown, ctx: ValidationContext): Comman
       if (!isNum(raw.seconds) || raw.seconds < 0.1 || raw.seconds > LIMITS.maxDuration) return void errors.push(`${where}: seconds must be between 0.1 and ${LIMITS.maxDuration}.`);
       if (anchor) out.push({ operation: op, position: raw.position, anchor, seconds: raw.seconds });
     } else {
-      const match = validateMatch(raw.match ?? { scope: 'context' }, `${where} match`, errors);
+      const match = validateMatch(contextMatch(raw.match), `${where} match`, errors);
       if (raw.style !== undefined && !oneOf(STYLES, raw.style)) return void errors.push(`${where}: unknown style "${String(raw.style)}".`);
       if (raw.amplitude !== undefined && (!isNum(raw.amplitude) || raw.amplitude < 0 || raw.amplitude > LIMITS.maxAmplitude)) return void errors.push(`${where}: amplitude out of range.`);
       if (raw.style === undefined && raw.amplitude === undefined) return void errors.push(`${where}: modify_style needs a style or amplitude.`);

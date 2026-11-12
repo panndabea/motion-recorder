@@ -193,7 +193,7 @@ Free-form instructions (“Schlendere zum Tisch, setz dich kurz hin und komm zur
 
 1. Install [Ollama](https://ollama.com) and run `ollama pull qwen2.5:3b` (about 2 GB). Ollama allows requests from `http://localhost:*` by default.
    For LM Studio: load a model, start the local server and enable CORS; the URL is `http://localhost:1234/v1`.
-2. In the Director, click ⚙ next to “Director”, tick **Use a local model**, check URL (`http://localhost:11434/v1`) and model name, and press **Test connection**.
+2. In the Director, click ⚙ next to “Director”, tick **Use a local model**, check URL (`http://localhost:11434/v1`), model name and timeout (default 180 s; CPU-only machines can need a minute or more for the first prompt), and press **Test connection**.
 
 How it stays safe and reproducible (`src/director/ai/llmInterpreter.ts`, `runPromptWithModel` in `ai/directorSession.ts`):
 - The model gets the action vocabulary, the scene object ids, the current sequence (ids, types, durations) and the selection, and must reply with `{interpretation, commands, unsupported}` (temperature 0). `pick_up` / `put_down` shorthands are expanded into `reach, grip, lift` / `place, release`.

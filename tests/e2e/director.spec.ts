@@ -124,6 +124,17 @@ test('unsupported instructions change nothing and are reported', async ({ page }
   expect((await state(page)).actions.map((a) => a.type)).toEqual(['walk_to', 'reach', 'grip', 'place', 'release']);
 });
 
+test('timeline zoom never pushes the chat or transport controls off a 1280px screen', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/director?source=synthetic');
+  await expect(page.getByTestId('director-stage')).toBeVisible();
+  await direct(page, 'walk to the table, just sit down, then walk back. then walk again to the table. pick up the glass. then look left and put down the glass');
+  const zoomIn = page.getByTitle('Zoom in');
+  for (let i = 0; i < 12; i++) await zoomIn.click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(1280);
+  for (const el of [page.getByTitle('Zoom out'), zoomIn, page.getByTestId('director-send'), page.getByTestId('director-input')]) await expect(el).toBeInViewport();
+});
+
 test('conversational timing edits retime the action and are undoable and persisted', async ({ page }) => {
   await page.goto('/director?source=synthetic');
   await expect(page.getByTestId('director-stage')).toBeVisible();

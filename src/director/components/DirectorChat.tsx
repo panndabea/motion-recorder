@@ -40,6 +40,20 @@ function ModelSettings() {
         Model
         <input value={llm.model} data-testid="llm-model" spellCheck={false} onChange={(e) => setLlmSettings({ model: e.target.value.trim() })} />
       </label>
+      <label>
+        Timeout (seconds)
+        <input
+          type="number"
+          min={5}
+          max={600}
+          value={Math.round(llm.timeoutMs / 1000)}
+          data-testid="llm-timeout"
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            if (Number.isFinite(v) && v >= 5) setLlmSettings({ timeoutMs: Math.min(600, v) * 1000 });
+          }}
+        />
+      </label>
       <div className="ds-row">
         <button type="button" className="ds-btn" onClick={() => void test()} data-testid="llm-test">
           Test connection
@@ -127,6 +141,7 @@ export function DirectorChat() {
           placeholder="e.g. Walk slowly to the table and pick up the glass"
           aria-label="Director instruction"
           data-testid="director-input"
+          disabled={thinking}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
