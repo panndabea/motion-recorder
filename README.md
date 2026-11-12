@@ -149,6 +149,44 @@ fresh mannequin and compares it to the recording; a failed check aborts the
 export. Unit tests additionally run the Khronos glTF validator (0 errors) and
 replay the re-imported clip on a fresh rig instance.
 
+## AI Director Studio (`/director`)
+
+A second workspace in the same app. Open it with **AI Director Studio →** in the MotionRecorder header, or go to `/director`. **← Back to MotionRecorder** returns to `/recorder`. Switching uses client-side routing (no reload). The recorder releases the webcam when you leave it, and its takes stay in IndexedDB. The Director never touches the camera.
+
+### What you can do
+- **Stage:** the mannequin, a table, a glass, the ground, a camera and a key light, each with a stable id (`actor`, `table`, `glass`, ...). Select objects in the hierarchy or on the stage. Move them with the gizmo or in the inspector. Orbit the camera; **Reset camera** restores the saved view.
+- **Direct with text:** for example *"Walk to the table, pick up the glass, look around nervously and put it back on the table."* Follow-ups edit only the actions they name:
+  - *"Do it more slowly."* / *"Make him more cautious."*
+  - *"Look around before putting down the glass."*
+  - *"Pause before releasing the glass."* / *"Move the hesitation to the end."*
+  - *"Make the walk more exaggerated."*
+  - Simple German also works, e.g. *"Geh zum Tisch und nimm das Glas."*
+- **Timeline:** lanes for Actor Root, Body Motion, Head/Gaze, Right/Left Arm, Object Interaction, Glass Transform and Events (attach/release). You can play, pause, loop, scrub, and zoom. Click a clip to inspect it and edit its speed, duration, style, bend or amplitude; move it earlier or later, delete it, or insert a pause after it.
+- **Undo/Redo** covers prompts, timeline edits and object moves.
+- **Projects:** the current project is autosaved in IndexedDB (`director-studio` database, separate from recordings). **Save** downloads a versioned `*.director.json`; **Open** loads one after validation; **New** starts an empty scene. A project stores the scene, the structured action list (with ids), the chat with the applied structured commands, the camera and settings. Reopening a project recomposes the performance from the stored actions and never re-interprets the chat text.
+- **Export:**
+  - **Motion JSON:** the actor motion in the MotionRecorder format, `meta.source: "director"`, root motion on the `root` bone.
+  - **Actor GLB:** the mannequin with the baked animation, re-imported as a check before download.
+  - **Scene GLB:** mannequin, table, ground and the glass with its own baked transform animation, also re-imported as a check.
+  - **Send to MotionRecorder:** saves the baked take into the recorder's library and switches workspaces.
+
+### How it works
+1. **Interpret:** `src/director/ai/commandParser.ts` is a deterministic, rule-based interpreter that turns text into structured commands (`create_sequence`, `append_actions`, `insert_actions`, `modify_actions`, `move_actions`, `delete_actions`). It is **not** a language model. Phrases it cannot map are reported as unsupported, and no motion is invented for them.
+2. **Validate:** `commandSchema.ts` checks every command: action types (`walk_to`, `turn`, `reach`, `grip`, `lift`, `place`, `release`, `look_at`, `look_around`, `pause`, `bend`, `idle`), object references, value ranges and operations. Any future model-based interpreter has to emit the same JSON and pass the same validator.
+3. **Plan:** `planning/actionPlanner.ts` simulates the glass state machine (on table → reached → held → placed → released) and where the actor stands. It inserts missing prerequisites, marked `auto` (walk to the glass before reaching, reach before grip, release after place), and rejects transitions it cannot fix, such as releasing a glass that is not held. `sceneConstraints.ts` computes approach points from the table bounds, the reach envelope and the placement spots.
+4. **Compose:** `animation/motionComposer.ts` builds the pose as a pure function of time `t`. Scrubbing and seeking are therefore exact, and playback is reproducible:
+   - **Base motion:** the library clips `Idle_Loop` and `Walk_Loop`. The walk phase is driven by the distance travelled, so the feet match the root speed. Horizontal root motion goes on the `root` bone.
+   - **Procedural layers:** spine bend, head/neck gaze (look-at), and analytic two-bone IK for the arms using the rig's own bone lengths. The upper-body bend needed to reach a target is solved automatically.
+   - **Glass:** attached to the palm at the end of `grip` with the relative offset kept. It follows the hand while held, settles exactly on the placement point, and stays there after `release`.
+5. **Bake:** `animation/animationBaker.ts` samples the performance at 30 fps into MotionRecorder tracks, plus a separate glass track for the scene export.
+
+### Limitations (Director)
+- The interpreter is rule-based. It understands the documented vocabulary and close variants, not arbitrary language. A browser-local LLM (e.g. WebLLM on WebGPU) could be added behind the same validator, but it is **not included**: it could not be verified on this development VM, which has no GPU.
+- One actor, one table, one glass. Only the glass can be picked up.
+- There is no physics or collision avoidance. Walks are straight lines, and the planner only picks the table side to approach.
+- Fingers do not curl around the glass, and turning in place slides the feet slightly.
+- `PickUp_Table` and the other library clips are not used yet. Reaching is done with IK and bending.
+
 ## Tests
 
 ```bash

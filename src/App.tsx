@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link, useLocation } from 'react-router';
 import { loadMannequin } from './rig/mannequinLoader';
 import { MANNEQUIN_URL } from './rig/rigSpec';
 import { MotionEngine } from './engine/MotionEngine';
@@ -8,9 +9,6 @@ import { RecorderPanel } from './components/RecorderPanel';
 import { Toasts } from './components/Toasts';
 import { CharacterViewport } from './viewport/CharacterViewport';
 
-const params = new URLSearchParams(window.location.search);
-const synthetic = params.get('source') === 'synthetic';
-const exposeTestHook = synthetic || params.has('test');
 
 declare global {
   interface Window {
@@ -19,6 +17,13 @@ declare global {
 }
 
 export function App() {
+  const { search } = useLocation();
+  // Read once per mount: the engine is created for one input source.
+  const [{ synthetic, exposeTestHook }] = useState(() => {
+    const params = new URLSearchParams(search);
+    const syn = params.get('source') === 'synthetic';
+    return { synthetic: syn, exposeTestHook: syn || params.has('test') };
+  });
   const [engine, setEngine] = useState<MotionEngine | null>(null);
   const rigStatus = useStore((s) => s.rigStatus);
   const rigError = useStore((s) => s.rigError);
@@ -41,8 +46,9 @@ export function App() {
     return () => {
       disposed = true;
       created?.dispose();
+      if (window.__motionRecorder?.engine === created) delete window.__motionRecorder;
     };
-  }, []);
+  }, [synthetic, exposeTestHook]);
 
   return (
     <div className="app">
@@ -54,8 +60,13 @@ export function App() {
           MotionRecorder
           {synthetic && <span className="tag">synthetic input</span>}
         </div>
-        <div className={`mode mode-${mode}`} data-testid="mode">
-          {MODE_LABEL[mode]}
+        <div className="topbar-right">
+          <div className={`mode mode-${mode}`} data-testid="mode">
+            {MODE_LABEL[mode]}
+          </div>
+          <Link className="btn director-link" to={`/director${search}`} data-testid="open-director">
+            AI Director Studio →
+          </Link>
         </div>
       </header>
       {rigStatus === 'error' && <div className="fatal">Could not load the mannequin: {rigError}</div>}
